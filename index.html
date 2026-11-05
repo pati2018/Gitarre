@@ -496,6 +496,7 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
 
   /* ---------- Autoplay ---------- */
   const P = { on: false, chord: null, next: null, step: 0, t: 0, timer: 0 };
+  let lastChord = null;                                        // last chord strip tapped by hand
   const flash = [0, 0, 0, 0, 0, 0, 0, 0];
   const sounding = c => [0, 1, 2, 3, 4, 5].filter(s => CHORDS[c][s] !== null);
   function playStep(ev, pat, t) {
@@ -557,6 +558,7 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
     const p = pos(e);
     if (S.mode === 'smart') {
       const i = Math.max(0, Math.min(7, Math.floor(p.x / (W / 8)))), chord = strips()[i];
+      lastChord = chord;
       if (S.auto) { startAuto(chord); wake(); return; }
       flash[i] = e.timeStamp + 160;
       if (p.y < L.head) { sounding(chord).forEach((s, n) => pick(s, .85, n * .012, chord)); return; }
@@ -901,6 +903,45 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
     }
     if (cv.width && cv.height) gm.drawImage(cv, 0, 0, w, h);
     gm.globalAlpha = 1;
+    chordBadge(w, h);
+  }
+  // The toolbar is not part of the video, so the chord being played is drawn into it:
+  // name plus a chord box (strings upright, low E on the left), bottom right over the body.
+  const shownChord = () => S.mode === 'smart' ? (P.on ? P.chord : lastChord) : (S.chord || null);
+  let badgeChord = null, badgeSince = 0;
+  function chordBadge(w, h) {
+    const name = shownChord();
+    if (name !== badgeChord) { badgeChord = name; badgeSince = performance.now(); }
+    const frets = name && CHORDS[name]; if (!frets) return;
+    const u = Math.min(w, h * 1.6) / 100;                       // layout unit
+    const bw = 21 * u, bh = 29 * u, x = w - bw - 2.5 * u, y = h - bh - 2.5 * u;
+    const fresh = performance.now() - badgeSince < 450;
+    gm.save();
+    gm.fillStyle = 'rgba(42,22,16,.88)';
+    gm.beginPath(); if (gm.roundRect) gm.roundRect(x, y, bw, bh, 1.6 * u); else gm.rect(x, y, bw, bh); gm.fill();
+    gm.lineWidth = .5 * u; gm.strokeStyle = fresh ? '#f0a83a' : 'rgba(243,239,228,.55)'; gm.stroke();
+    gm.textAlign = 'center'; gm.textBaseline = 'middle';
+    gm.fillStyle = '#f0a83a'; gm.font = `600 ${7 * u}px "Barlow Condensed", "Arial Narrow", sans-serif`;
+    gm.fillText(name, x + bw / 2, y + 5.2 * u);
+    // chord box
+    const used = frets.filter(f => f), lo = used.length ? Math.min(...used) : 1, hi = used.length ? Math.max(...used) : 1;
+    const start = hi <= 4 ? 1 : lo, rows = 4;
+    const gx = x + 3.6 * u, gw = bw - 7.2 * u, gy = y + 13 * u, gh = bh - 15.5 * u, sx = gw / 5, fy = gh / rows;
+    gm.strokeStyle = '#f3efe4'; gm.lineWidth = .28 * u;
+    for (let i = 0; i < 6; i++) { gm.beginPath(); gm.moveTo(gx + i * sx, gy); gm.lineTo(gx + i * sx, gy + gh); gm.stroke(); }
+    for (let r = 0; r <= rows; r++) {
+      gm.lineWidth = r === 0 && start === 1 ? u : .28 * u;      // thick nut line in open position
+      gm.beginPath(); gm.moveTo(gx, gy + r * fy); gm.lineTo(gx + gw, gy + r * fy); gm.stroke();
+    }
+    if (start > 1) { gm.fillStyle = '#f3efe4'; gm.font = `500 ${2.8 * u}px "Barlow Condensed", "Arial Narrow", sans-serif`; gm.textAlign = 'right'; gm.fillText(start + '.', gx - .8 * u, gy + fy / 2); gm.textAlign = 'center'; }
+    gm.font = `700 ${3 * u}px "Barlow Condensed", "Arial Narrow", sans-serif`;
+    frets.forEach((f, i) => {
+      const cx = gx + i * sx;
+      if (f === null) { gm.fillStyle = '#f3efe4'; gm.fillText('×', cx, gy - 2.2 * u); }
+      else if (f === 0) { gm.strokeStyle = '#f3efe4'; gm.lineWidth = .3 * u; gm.beginPath(); gm.arc(cx, gy - 2.2 * u, 1 * u, 0, 7); gm.stroke(); }
+      else { gm.fillStyle = '#f0a83a'; gm.beginPath(); gm.arc(cx, gy + (f - start + .5) * fy, 1.4 * u, 0, 7); gm.fill(); }
+    });
+    gm.restore();
   }
   function recTick() {
     const t = Math.floor((performance.now() - recT0) / 1000);
