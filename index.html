@@ -81,6 +81,8 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
 @media (max-height: 560px), (max-width: 600px) { .foot span { display: none; } .foot { padding-block: 3px; } }
 @media (max-height: 560px) { .badge { font-size: 26px; } }
 @media (prefers-reduced-motion: reduce) { #start { box-shadow: none; } }
+@media (max-width: 1320px) { .plate .row { gap: 8px; } .plate button { padding: 0 9px; } .badge { padding-right: 0; } }
+@media (max-width: 1100px) { .plate .row { gap: 5px; } .plate .group { gap: 3px; } .plate button { padding: 0 7px; } .badge { font-size: 26px; } }
 /* Camera preview and recording */
 #rec[aria-pressed="true"] { background: #c62828; color: #fff; border-color: #c62828; font-variant-numeric: tabular-nums; }
 #cam {
@@ -89,7 +91,17 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
 }
 .stage.cam { background: #000; }
 .stage.cam canvas { position: relative; opacity: var(--see, .5); }
+.saved {
+  position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: min(420px, calc(100% - 32px));
+  background: var(--foam); color: var(--rose); border-radius: 12px; padding: 16px; box-shadow: 0 10px 40px rgba(0,0,0,.5);
+  display: flex; flex-direction: column; gap: 12px; text-align: center; z-index: 2;
+}
+.saved video { width: 100%; max-height: 40vh; border-radius: 8px; background: #000; }
+.saved .acts { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
+.saved .acts button { height: 48px; padding: 0 20px; font-size: 19px; }
+.saved .acts .go { background: var(--rose); color: var(--pearl); border-color: var(--rose); }
 .toast {
+  z-index: 3;
   position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%); max-width: calc(100% - 32px);
   background: var(--rose); color: var(--pearl); padding: 8px 14px; border-radius: 8px;
   font-size: 15px; font-weight: 500; pointer-events: none; text-align: center;
@@ -150,6 +162,14 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
     <video id="cam" playsinline muted autoplay hidden></video>
     <canvas id="neck" aria-label="Griffbrett mit sechs Saiten. Tippen spielt einen Ton, Ziehen verändert die Tonhöhe."></canvas>
         <div class="toast" id="toast" role="status" hidden></div>
+    <div class="saved" id="saved" role="dialog" aria-label="Aufnahme speichern" hidden>
+      <strong id="savedTitle">Aufnahme fertig</strong>
+      <video id="savedVideo" playsinline controls></video>
+      <div class="acts">
+        <button class="go" id="saveBtn">Speichern</button>
+        <button id="dropBtn">Verwerfen</button>
+      </div>
+    </div>
     <button id="start" disabled>Klänge laden …</button>
   </div>
   <div class="foot">
@@ -810,9 +830,14 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
   const setPressed = (b, on) => b.setAttribute('aria-pressed', on ? 'true' : 'false');
 
   const recDest = ctx.createMediaStreamDestination ? ctx.createMediaStreamDestination() : null;
-  if (recDest) out.connect(recDest);
-  const micGain = ctx.createGain(); micGain.gain.value = 1;
-  if (recDest) micGain.connect(recDest);                       // into the recording only, never the speakers
+  const APP_BOOST = 3.5, MIC_BOOST = 2.5;                      // the recording is louder than the speakers
+  const appRec = ctx.createGain(); appRec.gain.value = APP_BOOST;
+  const micGain = ctx.createGain(); micGain.gain.value = MIC_BOOST;
+  const limiter = ctx.createDynamicsCompressor();
+  limiter.threshold.value = -9; limiter.knee.value = 3; limiter.ratio.value = 20; limiter.attack.value = .002; limiter.release.value = .15;
+  const recOut = ctx.createGain(); recOut.gain.value = .95;
+  out.connect(appRec); appRec.connect(limiter); micGain.connect(limiter); limiter.connect(recOut);   // mic into the recording only, never the speakers
+  if (recDest) recOut.connect(recDest);
   let micNode = null;
 
   function stopCamera() {
@@ -850,7 +875,7 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
     } else toast('Kein Mikrofon gefunden – aufgenommen wird nur der Klang der App.');
     if (ctx.state !== 'running') ctx.resume();
   }
-  function applyMic() { micGain.gain.value = micOn ? 1 : 0; setPressed(micBtn, micOn); }
+  function applyMic() { micGain.gain.value = micOn ? MIC_BOOST : 0; setPressed(micBtn, micOn); }
   camBtn.onclick = () => { camStream ? stopCamera() : startCamera(); };
   micBtn.onclick = () => { micOn = !micOn; applyMic(); };
 
@@ -905,20 +930,57 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
     clearInterval(recTimer); cancelAnimationFrame(recRaf); recRaf = 0;
     setPressed(recBtn, false); recBtn.textContent = '● Aufnahme';
   }
+  let lastRec = null;                                          // { blob, file, url }
   function saveRec() {
     const type = (rec && rec.mimeType) || recType || 'video/webm';
     const ext = /mp4/.test(type) ? 'mp4' : 'webm';
     const blob = new Blob(recChunks, { type: type.split(';')[0] });
+    const secs = Math.round((performance.now() - recT0) / 1000);
     rec = null; recChunks = [];
     if (!blob.size) { toast('Die Aufnahme ist leer geblieben.'); return; }
     const d = new Date(), p = n => String(n).padStart(2, '0');
     const file = 'saitenzug-' + d.getFullYear() + p(d.getMonth() + 1) + p(d.getDate()) + '-' + p(d.getHours()) + p(d.getMinutes()) + p(d.getSeconds()) + '.' + ext;
-    const url = URL.createObjectURL(blob), a = document.createElement('a');
-    a.href = url; a.download = file; document.body.append(a); a.click(); a.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 60000);
-    toast(ext === 'mp4' ? 'Gespeichert: ' + file : 'Gespeichert als WebM – dieser Browser kann kein MP4 aufnehmen.', 6000);
+    dropRec();
+    lastRec = { blob, file, url: URL.createObjectURL(blob) };
+    $('savedVideo').src = lastRec.url;
+    $('savedTitle').textContent = 'Aufnahme fertig (' + Math.floor(secs / 60) + ':' + p(secs % 60) + ')' + (ext === 'mp4' ? '' : ' – als WebM, dieser Browser kann kein MP4');
+    $('saved').hidden = false;
   }
-  recBtn.onclick = () => { rec ? stopRec() : startRec(); };
+  function dropRec() {
+    const v = $('savedVideo'); v.pause(); v.removeAttribute('src'); v.load();
+    if (lastRec) URL.revokeObjectURL(lastRec.url);
+    lastRec = null; $('saved').hidden = true;
+  }
+  const touchDevice = matchMedia('(pointer: coarse)').matches || /iPad|iPhone|Android/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  async function keepRec() {
+    if (!lastRec) return;
+    const { blob, file, url } = lastRec;
+    // iPad / iPhone / Android: the share sheet has "Video sichern" (Fotos) and "In Dateien sichern".
+    if (touchDevice && navigator.canShare) {
+      const f = new File([blob], file, { type: blob.type });
+      if (navigator.canShare({ files: [f] })) {
+        try { await navigator.share({ files: [f] }); dropRec(); toast('Gespeichert.'); return; }
+        catch (e) { if (e && e.name === 'AbortError') return; }    // closed the sheet: keep the panel open
+      }
+    }
+    // PC with Chrome or Edge: a real "Speichern unter" dialog.
+    if (window.showSaveFilePicker) {
+      try {
+        const ext = file.split('.').pop();
+        const h = await showSaveFilePicker({ suggestedName: file, types: [{ description: 'Video', accept: { [blob.type]: ['.' + ext] } }] });
+        const w = await h.createWritable(); await w.write(blob); await w.close();
+        dropRec(); toast('Gespeichert: ' + h.name); return;
+      } catch (e) { if (e && e.name === 'AbortError') return; }
+    }
+    // Everything else: a normal download into the Downloads folder.
+    const a = document.createElement('a');
+    a.href = url; a.download = file; document.body.append(a); a.click(); a.remove();
+    toast('Gespeichert im Download-Ordner: ' + file, 6000);
+    setTimeout(dropRec, 1500);
+  }
+  $('saveBtn').onclick = keepRec;
+  $('dropBtn').onclick = () => { dropRec(); toast('Aufnahme verworfen.'); };
+  recBtn.onclick = () => { if (rec) stopRec(); else { dropRec(); startRec(); } };
   document.addEventListener('visibilitychange', () => { if (document.hidden && rec) stopRec(); });
 
   applyMode();
