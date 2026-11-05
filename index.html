@@ -81,6 +81,18 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
 @media (max-height: 560px), (max-width: 600px) { .foot span { display: none; } .foot { padding-block: 3px; } }
 @media (max-height: 560px) { .badge { font-size: 26px; } }
 @media (prefers-reduced-motion: reduce) { #start { box-shadow: none; } }
+/* Camera preview and recording */
+#rec[aria-pressed="true"] { background: #c62828; color: #fff; border-color: #c62828; font-variant-numeric: tabular-nums; }
+#cam {
+  position: absolute; top: 10px; right: max(10px, env(safe-area-inset-right, 0px));
+  width: min(30%, 260px); height: auto; border-radius: 10px; border: 2px solid var(--pearl);
+  background: #000; transform: scaleX(-1); pointer-events: none; box-shadow: 0 4px 16px rgba(0,0,0,.35);
+}
+.toast {
+  position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%); max-width: calc(100% - 32px);
+  background: var(--rose); color: var(--pearl); padding: 8px 14px; border-radius: 8px;
+  font-size: 15px; font-weight: 500; pointer-events: none; text-align: center;
+}
 </style>
 
 <div class="app">
@@ -97,6 +109,8 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
         <button id="reverb" aria-pressed="true">Hall</button>
         <button id="names" aria-pressed="false">Tonnamen</button>
         <button id="flip" aria-pressed="false">Spiegeln</button>
+        <button id="camera" aria-pressed="false">Kamera</button>
+        <button id="rec" aria-pressed="false">● Aufnahme</button>
       </div>
     </div>
     <div class="row" id="rowFret">
@@ -132,6 +146,8 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
   </div>
   <div class="stage" id="stage">
     <canvas id="neck" aria-label="Griffbrett mit sechs Saiten. Tippen spielt einen Ton, Ziehen verändert die Tonhöhe."></canvas>
+    <video id="cam" playsinline muted autoplay hidden></video>
+    <div class="toast" id="toast" role="status" hidden></div>
     <button id="start" disabled>Klänge laden …</button>
   </div>
   <div class="foot">
@@ -777,6 +793,105 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
     [0, 1, 2, 3, 4, 5].forEach((s, i) => pick(s, .7, .05 + i * .03, first));    // first strum proves the sound works
   };
 
+  /* ---------- Camera and recording ---------- */
+  // The recording is what the stage shows: the neck canvas plus the camera picture-in-picture,
+  // with the app's own sound taken straight from the mix bus (no microphone, no room noise).
+  const cam = $('cam'), camBtn = $('camera'), recBtn = $('rec');
+  let camStream = null, toastTimer = 0;
+  function toast(msg, ms = 4000) {
+    const t = $('toast'); t.textContent = msg; t.hidden = false;
+    clearTimeout(toastTimer); toastTimer = setTimeout(() => { t.hidden = true; }, ms);
+  }
+  function stopCamera() {
+    if (camStream) camStream.getTracks().forEach(t => t.stop());
+    camStream = null; cam.srcObject = null; cam.hidden = true; camBtn.setAttribute('aria-pressed', 'false');
+  }
+  async function startCamera() {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { toast('Dieser Browser kann nicht auf die Kamera zugreifen.'); return; }
+    try {
+      camStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false });
+      cam.srcObject = camStream; cam.hidden = false; camBtn.setAttribute('aria-pressed', 'true');
+      await cam.play().catch(() => {});
+    } catch (e) {
+      stopCamera();
+      toast(e && e.name === 'NotAllowedError' ? 'Kamera-Zugriff wurde nicht erlaubt.' : 'Kamera nicht verfügbar (' + ((e && (e.message || e.name)) || 'unbekannt') + ').');
+    }
+  }
+  camBtn.onclick = () => { camStream ? stopCamera() : startCamera(); };
+
+  const recDest = ctx.createMediaStreamDestination ? ctx.createMediaStreamDestination() : null;
+  if (recDest) out.connect(recDest);
+  const REC_TYPES = ['video/mp4;codecs="avc1.42E01F,mp4a.40.2"', 'video/mp4;codecs=avc1,mp4a', 'video/mp4;codecs=avc1,opus', 'video/mp4',
+    'video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm'];
+  const canRecord = !!(window.MediaRecorder && HTMLCanvasElement.prototype.captureStream);
+  const recType = canRecord && MediaRecorder.isTypeSupported ? (REC_TYPES.find(t => MediaRecorder.isTypeSupported(t)) || '') : '';
+  if (!canRecord) { recBtn.disabled = true; recBtn.title = 'Dieser Browser kann keine Videos aufnehmen.'; }
+
+  const mix = document.createElement('canvas'), gm = mix.getContext('2d');
+  let rec = null, recChunks = [], recRaf = 0, recT0 = 0, recTimer = 0;
+  function mixFrame() {
+    recRaf = requestAnimationFrame(mixFrame);
+    const w = mix.width, h = mix.height;
+    gm.fillStyle = '#8cc2ae'; gm.fillRect(0, 0, w, h);
+    if (cv.width && cv.height) gm.drawImage(cv, 0, 0, w, h);
+    if (camStream && cam.videoWidth) {
+      const sr = cv.getBoundingClientRect(), r = cam.getBoundingClientRect(), k = w / (sr.width || 1);
+      const x = (r.left - sr.left) * k, y = (r.top - sr.top) * k, cw = r.width * k, ch = r.height * k;
+      gm.save();
+      gm.beginPath();
+      if (gm.roundRect) gm.roundRect(x, y, cw, ch, 10 * k); else gm.rect(x, y, cw, ch);
+      gm.clip();
+      gm.translate(x + cw, y); gm.scale(-1, 1);              // mirrored, like the preview
+      gm.drawImage(cam, 0, 0, cw, ch);
+      gm.restore();
+      gm.lineWidth = 2 * k; gm.strokeStyle = '#f3efe4';
+      gm.beginPath(); if (gm.roundRect) gm.roundRect(x, y, cw, ch, 10 * k); else gm.rect(x, y, cw, ch); gm.stroke();
+    }
+  }
+  function recTick() {
+    const t = Math.floor((performance.now() - recT0) / 1000);
+    recBtn.textContent = '■ ' + Math.floor(t / 60) + ':' + String(t % 60).padStart(2, '0');
+  }
+  function startRec() {
+    if (ctx.state !== 'running') ctx.resume();
+    const sc = Math.min(1, 1920 / (cv.width || 1), 1080 / (cv.height || 1));
+    mix.width = Math.max(2, Math.round(cv.width * sc / 2) * 2);
+    mix.height = Math.max(2, Math.round(cv.height * sc / 2) * 2);
+    mixFrame();
+    const tracks = [...mix.captureStream(30).getVideoTracks(), ...(recDest ? recDest.stream.getAudioTracks() : [])];
+    const opts = { videoBitsPerSecond: 5000000, audioBitsPerSecond: 192000 };
+    if (recType) opts.mimeType = recType;
+    try { rec = new MediaRecorder(new MediaStream(tracks), opts); }
+    catch (e) { cancelAnimationFrame(recRaf); recRaf = 0; rec = null; toast('Aufnahme nicht möglich (' + ((e && (e.message || e.name)) || 'unbekannt') + ').'); return; }
+    recChunks = [];
+    rec.ondataavailable = e => { if (e.data && e.data.size) recChunks.push(e.data); };
+    rec.onstop = saveRec;
+    rec.start(1000);
+    recT0 = performance.now(); recTick(); recTimer = setInterval(recTick, 500);
+    recBtn.setAttribute('aria-pressed', 'true');
+    if (!camStream) toast('Aufnahme läuft – ohne Kamera, nur Griffbrett und Klang.', 2500);
+  }
+  function stopRec() {
+    if (rec && rec.state !== 'inactive') rec.stop();
+    clearInterval(recTimer); cancelAnimationFrame(recRaf); recRaf = 0;
+    recBtn.setAttribute('aria-pressed', 'false'); recBtn.textContent = '● Aufnahme';
+  }
+  function saveRec() {
+    const type = (rec && rec.mimeType) || recType || 'video/webm';
+    const ext = /mp4/.test(type) ? 'mp4' : 'webm';
+    const blob = new Blob(recChunks, { type: type.split(';')[0] });
+    rec = null; recChunks = [];
+    if (!blob.size) { toast('Die Aufnahme ist leer geblieben.'); return; }
+    const d = new Date(), p = n => String(n).padStart(2, '0');
+    const file = 'saitenzug-' + d.getFullYear() + p(d.getMonth() + 1) + p(d.getDate()) + '-' + p(d.getHours()) + p(d.getMinutes()) + p(d.getSeconds()) + '.' + ext;
+    const url = URL.createObjectURL(blob), a = document.createElement('a');
+    a.href = url; a.download = file; document.body.append(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+    toast(ext === 'mp4' ? 'Gespeichert: ' + file : 'Gespeichert als WebM – dieser Browser kann kein MP4 aufnehmen.', 6000);
+  }
+  recBtn.onclick = () => { rec ? stopRec() : startRec(); };
+  document.addEventListener('visibilitychange', () => { if (document.hidden && rec) stopRec(); });
+
   applyMode();
   new ResizeObserver(layout).observe($('stage'));
   layout();
@@ -793,7 +908,7 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
   }
   boot();
 
-  window.__saitenzug = { ctx, voices, fingers, S, banks, P, KEYS, CHORDS };
+  window.__saitenzug = { ctx, voices, fingers, S, banks, P, KEYS, CHORDS, recType };
 })();
 </script>
 
