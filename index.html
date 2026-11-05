@@ -84,10 +84,11 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
 /* Camera preview and recording */
 #rec[aria-pressed="true"] { background: #c62828; color: #fff; border-color: #c62828; font-variant-numeric: tabular-nums; }
 #cam {
-  position: absolute; top: 10px; right: max(10px, env(safe-area-inset-right, 0px));
-  width: min(30%, 260px); height: auto; border-radius: 10px; border: 2px solid var(--pearl);
-  background: #000; transform: scaleX(-1); pointer-events: none; box-shadow: 0 4px 16px rgba(0,0,0,.35);
+  position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover;
+  background: #000; transform: scaleX(-1); pointer-events: none;
 }
+.stage.cam { background: #000; }
+.stage.cam canvas { position: relative; opacity: var(--see, .5); }
 .toast {
   position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%); max-width: calc(100% - 32px);
   background: var(--rose); color: var(--pearl); padding: 8px 14px; border-radius: 8px;
@@ -110,6 +111,7 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
         <button id="names" aria-pressed="false">Tonnamen</button>
         <button id="flip" aria-pressed="false">Spiegeln</button>
         <button id="camera" aria-pressed="false">Kamera</button>
+        <button id="mic" aria-pressed="false" hidden>Mikro</button>
         <button id="rec" aria-pressed="false">● Aufnahme</button>
       </div>
     </div>
@@ -145,9 +147,9 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
     </div>
   </div>
   <div class="stage" id="stage">
-    <canvas id="neck" aria-label="Griffbrett mit sechs Saiten. Tippen spielt einen Ton, Ziehen verändert die Tonhöhe."></canvas>
     <video id="cam" playsinline muted autoplay hidden></video>
-    <div class="toast" id="toast" role="status" hidden></div>
+    <canvas id="neck" aria-label="Griffbrett mit sechs Saiten. Tippen spielt einen Ton, Ziehen verändert die Tonhöhe."></canvas>
+        <div class="toast" id="toast" role="status" hidden></div>
     <button id="start" disabled>Klänge laden …</button>
   </div>
   <div class="foot">
@@ -794,33 +796,64 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
   };
 
   /* ---------- Camera and recording ---------- */
-  // The recording is what the stage shows: the neck canvas plus the camera picture-in-picture,
-  // with the app's own sound taken straight from the mix bus (no microphone, no room noise).
-  const cam = $('cam'), camBtn = $('camera'), recBtn = $('rec');
-  let camStream = null, toastTimer = 0;
+  // With the camera on, the player fills the stage and the neck floats see-through on top.
+  // The recording is that same picture, with the app's sound from the mix bus plus the microphone.
+  const SEE = .5;                                              // neck opacity over the camera
+  const cam = $('cam'), camBtn = $('camera'), micBtn = $('mic'), recBtn = $('rec'), stage = $('stage');
+  let camStream = null, micOn = true, toastTimer = 0;
+  stage.style.setProperty('--see', SEE);
   function toast(msg, ms = 4000) {
     const t = $('toast'); t.textContent = msg; t.hidden = false;
     clearTimeout(toastTimer); toastTimer = setTimeout(() => { t.hidden = true; }, ms);
   }
-  function stopCamera() {
-    if (camStream) camStream.getTracks().forEach(t => t.stop());
-    camStream = null; cam.srcObject = null; cam.hidden = true; camBtn.setAttribute('aria-pressed', 'false');
-  }
-  async function startCamera() {
-    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { toast('Dieser Browser kann nicht auf die Kamera zugreifen.'); return; }
-    try {
-      camStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false });
-      cam.srcObject = camStream; cam.hidden = false; camBtn.setAttribute('aria-pressed', 'true');
-      await cam.play().catch(() => {});
-    } catch (e) {
-      stopCamera();
-      toast(e && e.name === 'NotAllowedError' ? 'Kamera-Zugriff wurde nicht erlaubt.' : 'Kamera nicht verfügbar (' + ((e && (e.message || e.name)) || 'unbekannt') + ').');
-    }
-  }
-  camBtn.onclick = () => { camStream ? stopCamera() : startCamera(); };
+  const micTrack = () => camStream && camStream.getAudioTracks()[0];
+  const setPressed = (b, on) => b.setAttribute('aria-pressed', on ? 'true' : 'false');
 
   const recDest = ctx.createMediaStreamDestination ? ctx.createMediaStreamDestination() : null;
   if (recDest) out.connect(recDest);
+  const micGain = ctx.createGain(); micGain.gain.value = 1;
+  if (recDest) micGain.connect(recDest);                       // into the recording only, never the speakers
+  let micNode = null;
+
+  function stopCamera() {
+    if (rec) stopRec();
+    if (micNode) { micNode.disconnect(); micNode = null; }
+    if (camStream) camStream.getTracks().forEach(t => t.stop());
+    camStream = null; cam.srcObject = null; cam.hidden = true; stage.classList.remove('cam');
+    setPressed(camBtn, false); micBtn.hidden = true;
+    try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch (e) {}
+  }
+  async function startCamera() {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { toast('Dieser Browser kann nicht auf die Kamera zugreifen.'); return; }
+    const video = { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 } };
+    // Music, not speech: no noise gate, no automatic level. Echo cancellation keeps the app's own
+    // sound from coming back through the microphone a second time.
+    const audio = { echoCancellation: true, noiseSuppression: false, autoGainControl: false };
+    try { if (navigator.audioSession) navigator.audioSession.type = 'play-and-record'; } catch (e) {}
+    try {
+      try { camStream = await navigator.mediaDevices.getUserMedia({ video, audio }); }
+      catch (e) {
+        if (e && e.name === 'NotAllowedError') throw e;
+        camStream = await navigator.mediaDevices.getUserMedia({ video, audio: false });   // no microphone on this device
+      }
+    } catch (e) {
+      stopCamera();
+      toast(e && e.name === 'NotAllowedError' ? 'Kamera-Zugriff wurde nicht erlaubt.' : 'Kamera nicht verfügbar (' + ((e && (e.message || e.name)) || 'unbekannt') + ').');
+      return;
+    }
+    cam.srcObject = camStream; cam.hidden = false; stage.classList.add('cam'); setPressed(camBtn, true);
+    await cam.play().catch(() => {});
+    if (micTrack()) {
+      micNode = ctx.createMediaStreamSource(new MediaStream([micTrack()]));
+      micNode.connect(micGain);
+      micBtn.hidden = false; applyMic();
+    } else toast('Kein Mikrofon gefunden – aufgenommen wird nur der Klang der App.');
+    if (ctx.state !== 'running') ctx.resume();
+  }
+  function applyMic() { micGain.gain.value = micOn ? 1 : 0; setPressed(micBtn, micOn); }
+  camBtn.onclick = () => { camStream ? stopCamera() : startCamera(); };
+  micBtn.onclick = () => { micOn = !micOn; applyMic(); };
+
   const REC_TYPES = ['video/mp4;codecs="avc1.42E01F,mp4a.40.2"', 'video/mp4;codecs=avc1,mp4a', 'video/mp4;codecs=avc1,opus', 'video/mp4',
     'video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm'];
   const canRecord = !!(window.MediaRecorder && HTMLCanvasElement.prototype.captureStream);
@@ -831,22 +864,18 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
   let rec = null, recChunks = [], recRaf = 0, recT0 = 0, recTimer = 0;
   function mixFrame() {
     recRaf = requestAnimationFrame(mixFrame);
-    const w = mix.width, h = mix.height;
-    gm.fillStyle = '#8cc2ae'; gm.fillRect(0, 0, w, h);
-    if (cv.width && cv.height) gm.drawImage(cv, 0, 0, w, h);
-    if (camStream && cam.videoWidth) {
-      const sr = cv.getBoundingClientRect(), r = cam.getBoundingClientRect(), k = w / (sr.width || 1);
-      const x = (r.left - sr.left) * k, y = (r.top - sr.top) * k, cw = r.width * k, ch = r.height * k;
-      gm.save();
-      gm.beginPath();
-      if (gm.roundRect) gm.roundRect(x, y, cw, ch, 10 * k); else gm.rect(x, y, cw, ch);
-      gm.clip();
-      gm.translate(x + cw, y); gm.scale(-1, 1);              // mirrored, like the preview
-      gm.drawImage(cam, 0, 0, cw, ch);
+    const w = mix.width, h = mix.height, vw = cam.videoWidth, vh = cam.videoHeight;
+    gm.globalAlpha = 1;
+    gm.fillStyle = camStream ? '#000' : '#8cc2ae'; gm.fillRect(0, 0, w, h);
+    if (camStream && vw && vh) {
+      const k = Math.max(w / vw, h / vh), dw = vw * k, dh = vh * k;   // same crop as object-fit: cover
+      gm.save(); gm.translate(w, 0); gm.scale(-1, 1);                  // mirrored, like the live view
+      gm.drawImage(cam, (w - dw) / 2, (h - dh) / 2, dw, dh);
       gm.restore();
-      gm.lineWidth = 2 * k; gm.strokeStyle = '#f3efe4';
-      gm.beginPath(); if (gm.roundRect) gm.roundRect(x, y, cw, ch, 10 * k); else gm.rect(x, y, cw, ch); gm.stroke();
+      gm.globalAlpha = SEE;
     }
+    if (cv.width && cv.height) gm.drawImage(cv, 0, 0, w, h);
+    gm.globalAlpha = 1;
   }
   function recTick() {
     const t = Math.floor((performance.now() - recT0) / 1000);
@@ -859,7 +888,7 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
     mix.height = Math.max(2, Math.round(cv.height * sc / 2) * 2);
     mixFrame();
     const tracks = [...mix.captureStream(30).getVideoTracks(), ...(recDest ? recDest.stream.getAudioTracks() : [])];
-    const opts = { videoBitsPerSecond: 5000000, audioBitsPerSecond: 192000 };
+    const opts = { videoBitsPerSecond: 6000000, audioBitsPerSecond: 192000 };
     if (recType) opts.mimeType = recType;
     try { rec = new MediaRecorder(new MediaStream(tracks), opts); }
     catch (e) { cancelAnimationFrame(recRaf); recRaf = 0; rec = null; toast('Aufnahme nicht möglich (' + ((e && (e.message || e.name)) || 'unbekannt') + ').'); return; }
@@ -868,13 +897,13 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
     rec.onstop = saveRec;
     rec.start(1000);
     recT0 = performance.now(); recTick(); recTimer = setInterval(recTick, 500);
-    recBtn.setAttribute('aria-pressed', 'true');
-    if (!camStream) toast('Aufnahme läuft – ohne Kamera, nur Griffbrett und Klang.', 2500);
+    setPressed(recBtn, true);
+    if (!camStream) toast('Aufnahme läuft – ohne Kamera und Mikro, nur Griffbrett und Klang der App.', 3000);
   }
   function stopRec() {
     if (rec && rec.state !== 'inactive') rec.stop();
     clearInterval(recTimer); cancelAnimationFrame(recRaf); recRaf = 0;
-    recBtn.setAttribute('aria-pressed', 'false'); recBtn.textContent = '● Aufnahme';
+    setPressed(recBtn, false); recBtn.textContent = '● Aufnahme';
   }
   function saveRec() {
     const type = (rec && rec.mimeType) || recType || 'video/webm';
