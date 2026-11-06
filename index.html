@@ -734,7 +734,7 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
   const litBand = (name, st) => { bandLit.set(name + ':' + st, performance.now() + 110); wake(); };
   const pillarHead = q => Math.min(110, q.h * .22);
   function pillarBands(q, name) {
-    const ss = sounding(name).map(st => ({ s: st, m: noteOf(name, st) })).sort((a, b) => b.m - a.m);
+    const ss = sounding(name).map(st => ({ s: st, m: noteOf(name, st) })).sort((a, b) => S.flip ? a.m - b.m : b.m - a.m);   // Spiegeln: tiefe Töne oben
     const top = q.y + pillarHead(q), bot = q.y + q.h - Math.min(q.w * .35, 40), h = (bot - top) / Math.max(1, ss.length);
     return ss.map((b, k) => ({ ...b, y0: top + k * h, y1: top + (k + 1) * h }));
   }
@@ -1318,6 +1318,7 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
       if ([0, 2, 5, 7, 9].includes(pc) && i < nW - 1) keys.push({ midi: m + 1, black: true, x: (i + 1) * kw - bw / 2, y: top, w: bw, h: bh });
       midi = m;
     }
+    if (S.flip) keys.forEach(k => { k.x = W - k.x - k.w; });   // Spiegeln: hohe Töne links
     KB.keys = keys; KB.last = midi; KB.kw = kw;
     paintKeyboard();
   }
@@ -1471,7 +1472,9 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
   };
   toggle('ring', 'ring', () => syncPedal());
   $('pedal2').onclick = () => { S.ring = !S.ring; save(); syncPedal(); if (!S.ring) { kvoices.forEach((v, m) => releaseKey(m)); for (let s = 0; s < 6; s++) killVoice(s, .12); } };
-  toggle('flip', 'flip', layout);
+  const syncFlip = () => { $('flip').textContent = S.flip ? 'Spiegeln: an' : 'Spiegeln: aus'; $('flip').setAttribute('aria-pressed', !!S.flip); };
+  toggle('flip', 'flip', () => { syncFlip(); layout(); });
+  syncFlip();
 
   const HINTS = {
     keys: 'Tasten antippen spielt Töne, über die Tasten wischen spielt ein Glissando. Weiter unten auf der Taste anschlagen klingt lauter. ‹ › wechselt die Oktave, „Pedal“ lässt die Töne nachklingen.',
@@ -2219,7 +2222,7 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
     if (S.auto && !PATTERNS[S.auto]) S.auto = '';
     save();
     $('key').value = S.key; $('root').value = S.root; $('scale').value = S.scale;
-    $('flip').setAttribute('aria-pressed', !!S.flip);
+    syncFlip();
     ['headDwell', 'headGain'].forEach(id => { $(id).value = String(S[id]); });
     send.gain.setTargetAtTime(verbGain(S.verb || 0), ctx.currentTime, .03);
     toneEdit = false; renderInstruments(); boot(); circleSync(); applyMode(); layout(); wake();
