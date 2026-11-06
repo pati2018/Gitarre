@@ -230,6 +230,7 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
         <select id="scale" aria-label="Tonleiter"></select>
       </div>
       <span class="spacer"></span>
+      <button id="bwKeys" aria-pressed="false" title="Boomwhacker-Farben auf der Tastatur">🎨 Farben</button>
       <button id="ring" aria-pressed="true">Ausklingen</button>
       <div class="group" role="group" aria-label="Lage auf dem Griffbrett">
         <button id="posDown" aria-label="Zum Sattel">‹</button>
@@ -1338,7 +1339,20 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
   // Tastatur: der ruhende Teil wird einmal ins Hintergrundbild gemalt, pro Bild nur die gedrückten Tasten (schont das iPad)
   function paintKey(c, k, lit) {
     const scale = SCALES[S.scale] ? SCALES[S.scale][1] : [], inScale = scale.length && scale.includes(((k.midi - S.root) % 12 + 12) % 12);
-    const gr = c.createLinearGradient(0, k.y, 0, k.y + k.h);
+    const gr = c.createLinearGradient(0, k.y, 0, k.y + k.h), bwc = S.bwKeys && piano() ? BW[k.midi % 12] : null;
+    if (bwc) {                                                 // Boomwhacker-Farben: jede Taste in der Farbe ihres Tons
+      gr.addColorStop(0, shade(bwc, lit ? 1.3 : k.black ? .85 : 1.08)); gr.addColorStop(1, shade(bwc, lit ? 1.1 : k.black ? .6 : .88));
+      c.fillStyle = gr; c.beginPath();
+      if (c.roundRect) c.roundRect(k.black ? k.x : k.x + 1.5, k.y, k.black ? k.w : k.w - 3, k.h, k.black ? [0, 0, 5, 5] : [0, 0, 7, 7]); else c.rect(k.x, k.y, k.w, k.h);
+      c.fill();
+      c.lineWidth = lit ? 5 : 1.5; c.strokeStyle = lit ? '#ffffff' : k.black ? 'rgba(0,0,0,.55)' : 'rgba(42,22,16,.35)'; c.stroke();
+      if (!k.black && k.midi % 12 === 0) { c.fillStyle = inkOn(bwc); c.font = `600 ${Math.max(12, Math.min(18, k.w * .3))}px "Barlow Condensed", "Arial Narrow", sans-serif`; c.fillText('C' + (k.midi / 12 - 1), k.x + k.w / 2, k.y + k.h - 20); }
+      if (isDrums() && DRUMS[k.midi] && !k.black) {
+        c.fillStyle = inkOn(bwc); c.font = `600 ${Math.max(10, Math.min(14, k.w * .2))}px "Barlow Condensed", "Arial Narrow", sans-serif`;
+        DRUMS[k.midi].split(' ').forEach((t, li, arr) => c.fillText(t, k.x + k.w / 2, k.y + k.h - 70 - (arr.length - 1 - li) * 15));
+      }
+      return;
+    }
     if (!k.black) {
       gr.addColorStop(0, lit ? '#f7c56c' : '#fbf8f0'); gr.addColorStop(1, lit ? '#f0a83a' : '#e6dfcf');
       c.fillStyle = gr; c.beginPath(); if (c.roundRect) c.roundRect(k.x + 1.5, k.y, k.w - 3, k.h, [0, 0, 7, 7]); else c.rect(k.x + 1.5, k.y, k.w - 3, k.h); c.fill();
@@ -1479,6 +1493,8 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
   };
   toggle('ring', 'ring', () => syncPedal());
   $('pedal2').onclick = () => { S.ring = !S.ring; save(); syncPedal(); if (!S.ring) { kvoices.forEach((v, m) => releaseKey(m)); for (let s = 0; s < 6; s++) killVoice(s, .12); } };
+  function syncBwKeys() { $('bwKeys').setAttribute('aria-pressed', !!S.bwKeys); $('bwKeys').hidden = !piano(); }
+  $('bwKeys').onclick = () => { S.bwKeys = !S.bwKeys; save(); syncBwKeys(); layout(); wake(); };
   const syncFlip = () => { $('flip').textContent = S.flip ? 'Spiegeln: an' : 'Spiegeln: aus'; $('flip').setAttribute('aria-pressed', !!S.flip); };
   toggle('flip', 'flip', () => { syncFlip(); layout(); });
   syncFlip();
@@ -1505,7 +1521,7 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
     $('lStrum').textContent = pf ? 'Rhythmus' : 'Schlagen';
     $('lPick').textContent = pf ? 'Arpeggio' : 'Zupfen';
     $('kPick').setAttribute('aria-label', pf ? 'Arpeggio-Muster' : 'Zupfmuster');
-    syncPedal();
+    syncPedal(); syncBwKeys();
     $('ring').hidden = pf && !inst().pedal;
     $('pedal2').hidden = !(pf && inst().pedal); $('pedal2').setAttribute('aria-pressed', !!S.ring);
     $('chords').hidden = pf;
