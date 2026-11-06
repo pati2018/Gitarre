@@ -105,6 +105,17 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
   position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover;
   background: #000; transform: scaleX(-1); pointer-events: none;
 }
+.chordpick {
+  position: absolute; z-index: 20; top: 10px; left: 10px; max-width: calc(100% - 20px);
+  background: var(--foam); color: var(--rose); border: 2px solid var(--foam-deep); border-radius: 10px;
+  padding: 12px; box-shadow: 0 8px 30px rgba(0,0,0,.45); display: flex; flex-direction: column; gap: 10px;
+}
+.cp-head { display: flex; gap: 12px; align-items: baseline; flex-wrap: wrap; font-size: 18px; }
+.cp-info { font-size: 14px; color: var(--rose-soft); }
+.cp-list { display: flex; flex-wrap: wrap; gap: 6px; }
+.cp-list button { min-width: 64px; font-size: 20px; }
+.cp-acts { display: flex; gap: 6px; flex-wrap: wrap; }
+.cp-acts .go { background: var(--rose); color: var(--pearl); margin-left: auto; }
 .stage.cam { background: #000; }
 .stage.cam canvas { position: relative; opacity: var(--see, .5); }
 .saved {
@@ -158,6 +169,7 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
     </div>
     <div class="row" id="rowSmart" hidden>
       <select id="key" aria-label="Tonart"></select>
+      <button id="chordEdit" aria-expanded="false" title="Akkorde ein- oder ausblenden">✎ Akkorde</button>
       <div class="group" id="autos" role="group" aria-label="Autoplay" style="gap:14px">
         <div class="knobwrap"><div class="knob" id="kStrum" role="slider" tabindex="0" aria-label="Schlagmuster"></div><span class="label">Schlagen</span></div>
         <div class="knobwrap"><div class="knob" id="kPick" role="slider" tabindex="0" aria-label="Zupfmuster"></div><span class="label">Zupfen</span></div>
@@ -171,6 +183,11 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
     </div>
   </div>
   <div class="stage" id="stage">
+    <div class="chordpick" id="chordPick" role="dialog" aria-label="Akkorde auswählen" hidden>
+      <div class="cp-head"><strong>Welche Akkorde?</strong><span class="cp-info" id="cpInfo"></span></div>
+      <div class="cp-list" id="cpList"></div>
+      <div class="cp-acts"><button id="cpAll">Alle</button><button id="cpPop">C · Am · F · G</button><button class="go" id="cpDone">Fertig</button></div>
+    </div>
     <video id="cam" playsinline muted autoplay hidden></video>
     <canvas id="neck" aria-label="Griffbrett mit sechs Saiten. Tippen spielt einen Ton, Ziehen verändert die Tonhöhe."></canvas>
         <div class="toast" id="toast" role="status" hidden></div>
@@ -505,9 +522,13 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
     c.fillText('ANSCHLAGEN', L.neckEnd + L.zone / 2, L.bottom + 13);
   }
 
-  const strips = () => KEYS[S.key] || KEYS['A-Moll'];
+  const allStrips = () => KEYS[S.key] || KEYS['A-Moll'];
+  const strips = () => {                                       // nur die eingeblendeten Akkorde der Tonart
+    const hide = (S.hidden && S.hidden[S.key]) || [], list = allStrips().filter(c => !hide.includes(c));
+    return list.length ? list : allStrips();
+  };
   function paintStrips() {
-    const c = gb, n = 8, w = W / n; c.setTransform(DPR, 0, 0, DPR, 0, 0);
+    const c = gb, n = strips().length, w = W / n; c.setTransform(DPR, 0, 0, DPR, 0, 0);
     c.fillStyle = '#2a1610'; c.fillRect(0, 0, W, H);
     let seed = 11; const rnd = () => (seed = seed * 16807 % 2147483647) / 2147483647;
     for (let i = 0; i < 520; i++) {
@@ -525,7 +546,7 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
     }
   }
   function drawStrips(ts) {
-    const list = strips(), w = W / 8;
+    const list = strips(), w = W / list.length;
     g.textAlign = 'center'; g.textBaseline = 'middle';
     list.forEach((name, i) => {
       const x = i * w, on = P.on && P.chord === name, wait = P.on && P.next === name;
@@ -621,7 +642,7 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
     cv.setPointerCapture(e.pointerId);
     const p = pos(e);
     if (S.mode === 'smart') {
-      const i = Math.max(0, Math.min(7, Math.floor(p.x / (W / 8)))), chord = strips()[i];
+      const list = strips(), i = Math.max(0, Math.min(list.length - 1, Math.floor(p.x / (W / list.length)))), chord = list[i];
       lastChord = chord;
       if (S.auto) { startAuto(chord); wake(); return; }
       flash[i] = e.timeStamp + 160;
@@ -836,7 +857,7 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
   function setMode(m) {
     if (P.on) stopAuto();
     fingers.clear();
-    S.mode = m; save(); applyMode(); layout();
+    S.mode = m; save(); applyMode(); layout(); showPick(false);
   }
   $('m-fret').onclick = () => setMode('fret');
   $('m-smart').onclick = () => setMode('smart');
@@ -847,7 +868,36 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
   });
   if (!KEYS[S.key]) S.key = 'A-Moll';
   $('key').value = S.key;
-  $('key').onchange = e => { if (P.on) stopAuto(); S.key = e.target.value; save(); wake(); };
+  $('key').onchange = e => { if (P.on) stopAuto(); S.key = e.target.value; save(); layout(); renderChordPick(); wake(); };
+
+  /* Akkorde ein-/ausblenden (pro Tonart gespeichert) */
+  function renderChordPick() {
+    const all = allStrips(), hide = (S.hidden && S.hidden[S.key]) || [];
+    $('cpList').innerHTML = '';
+    all.forEach(c => {
+      const b = document.createElement('button'); b.textContent = c; b.setAttribute('aria-pressed', !hide.includes(c));
+      b.onclick = () => {
+        S.hidden = S.hidden || {}; let h = S.hidden[S.key] || [];
+        h = h.includes(c) ? h.filter(x => x !== c) : [...h, c];
+        if (h.length >= all.length) return;                    // mindestens ein Akkord bleibt
+        S.hidden[S.key] = h; changedChords();
+      };
+      $('cpList').append(b);
+    });
+    const n = strips().length;
+    $('cpInfo').textContent = S.key + ' – ' + n + (n === 1 ? ' Akkord' : ' Akkorde') + ' sichtbar';
+    const pop = ['C', 'Am', 'F', 'G'];
+    $('cpPop').hidden = !pop.every(c => all.includes(c));
+  }
+  function changedChords() {
+    if (P.on && !strips().includes(P.chord)) stopAuto();
+    save(); renderChordPick(); layout(); wake();
+  }
+  const showPick = on => { $('chordPick').hidden = !on; $('chordEdit').setAttribute('aria-expanded', on); $('chordEdit').setAttribute('aria-pressed', on); if (on) renderChordPick(); };
+  $('chordEdit').onclick = () => showPick($('chordPick').hidden);
+  $('cpDone').onclick = () => showPick(false);
+  $('cpAll').onclick = () => { S.hidden = S.hidden || {}; delete S.hidden[S.key]; changedChords(); };
+  $('cpPop').onclick = () => { S.hidden = S.hidden || {}; S.hidden[S.key] = allStrips().filter(c => !['C', 'Am', 'F', 'G'].includes(c)); changedChords(); };
   /* Drehregler: Position 0 = Aus, 1 … n = Muster. Tippen dreht eine Stufe weiter, Ziehen dreht frei. */
   const KNOBS = {
     kStrum: Object.keys(PATTERNS).filter(k => PATTERNS[k].kind === 'strum'),
