@@ -975,7 +975,7 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
       flash[i] = e.timeStamp + 160;
       if (p.y < L.head || (piano() && isNote(chord))) { sounding(chord).forEach((s, n) => pick(s, .85, n * .012, chord)); fingers.set(e.pointerId, { type: 'hold', chord, ss: sounding(chord), i, glide: 'strip' }); return; }
       const s = stringAt(p.y);
-      fingers.set(e.pointerId, { type: 'pick', chord, y: p.y, last: s, time: e.timeStamp, played: new Set([s]) });
+      fingers.set(e.pointerId, { type: 'pick', chord, y: p.y, last: s, time: e.timeStamp, played: new Set([s]), col: i });
       pick(s, .8, 0, chord);
       return;
     }
@@ -1036,6 +1036,24 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
       const k = keyAt(p.x, p.y);
       if (k && k.midi !== f.midi) { const old = f.midi; f.midi = k.midi; if (![...fingers.values()].some(o => o.type === 'key' && o.midi === old)) releaseKey(old); playKey(k.midi, .7); wake(); }
       return;
+    }
+    if (f.type === 'pick' && S.mode === 'smart' && f.col !== undefined) {   // seitlich in eine andere Spalte gleiten = neuer Akkord
+      const list = strips(), w = W / list.length, edge = (p.x - f.col * w) / w;
+      if (edge < -.08 || edge > 1.08) {
+        const j = Math.max(0, Math.min(list.length - 1, Math.floor(p.x / w))), old = f.chord, chord = list[j];
+        if (j !== f.col && chord) {
+          f.col = j; f.chord = chord; lastChord = chord;
+          if (autoOn()) { if (!P.on || (P.next || P.chord) !== chord) startAuto(chord); }
+          else {
+            if (releaseOnUp() && f.played) releaseStrings([...f.played], old);
+            flash[j] = e.timeStamp + 160;
+            const ss = sounding(chord); ss.forEach((st, n) => pick(st, .85, n * .012, chord));
+            if (f.played) ss.forEach(st => f.played.add(st));
+          }
+          f.y = p.y; f.last = stringAt(p.y); f.time = e.timeStamp; wake();
+          return;
+        }
+      }
     }
     if (f.type === 'pick') {
       const dt = Math.max(1, e.timeStamp - f.time), speed = Math.abs(p.y - f.y) / dt;
