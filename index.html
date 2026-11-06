@@ -996,7 +996,7 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
   const autoOn = () => !!S.auto && !inst().noAuto && !(piano() && PATTERNS[S.auto] && PATTERNS[S.auto].kind === 'strum');   // Klavier: nur Arpeggio            // Melodie-Instrumente und Schlagzeug: ohne Rhythmus/Arpeggio
   // Klavier: pro Akkordplatz wählbar, welche der 6 Töne erklingen (mask)
   let previewMask = null;
-  const TRIAD = [0, 0, 0, 1, 1, 1];                            // Standard: die oberen drei Töne (Dreiklang)
+  const TRIAD = [1, 1, 1, 1, 1, 1];                            // Standard: alle Akkordtöne (Bass, Quinte, 4 Töne darüber)
   const sameMask = (a, b) => a.every((v, i) => !!v === !!b[i]);
   function maskFor(c) {
     if (previewMask && previewMask.name === c) return previewMask.mask;
@@ -1004,7 +1004,7 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
     const x = slots().find(y => y.on && slotName(y) === c) || slots().find(y => slotName(y) === c);
     return x && x.q !== 'note' ? (x.mask || TRIAD) : null;
   }
-  // Klavier-Akkorde: Oktave je Platz (Standard 4 = Dreiklang um C4); verschiebt alle Töne des Akkords
+  // Klavier-Akkorde: Oktave je Platz (Standard 4 = um C4); verschiebt alle Töne des Akkords
   function octShift(c) {
     if (previewMask && previewMask.name === c) return previewMask.shift || 0;
     if (!piano() || isDrums()) return 0;
@@ -2272,12 +2272,12 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
     const name = ($('psName').value || '').trim() || ('Preset ' + psSel);
     if (psAt(psSel) && !confirm('Preset ' + psSel + ' „' + psAt(psSel).name + '“ überschreiben?')) return;
     const d = new Date();
-    psList = psList.filter(p => p.slot !== psSel).concat([{ slot: psSel, name, date: d.toLocaleDateString('de-DE'), cam: !!camStream, state: JSON.parse(JSON.stringify(S)) }]);
+    psList = psList.filter(p => p.slot !== psSel).concat([{ slot: psSel, name, date: d.toLocaleDateString('de-DE'), cam: !!camStream, mic: micOn, head: HEAD.on, state: JSON.parse(JSON.stringify(S)) }]);
     const ok = psStore(); psInfo(ok ? 'Gespeichert auf Platz ' + psSel + ': „' + name + '“.' : 'Speichern nicht möglich (Speicher voll?).', !ok); psRender();
   };
   function psLoad() {
     const p = psAt(psSel); if (!p) { psInfo('Platz ' + psSel + ' ist leer.', true); return; }
-    applyState(p.state, p.cam); psInfo('Geladen: „' + p.name + '“.'); psRender();
+    applyState(p.state, p.cam, p); psInfo('Geladen: „' + p.name + '“.'); psRender();
   }
   $('psLoad').onclick = psLoad;
   $('psDel').onclick = () => {
@@ -2286,7 +2286,7 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
     psList = psList.filter(x => x.slot !== psSel); psStore(); $('psName').value = ''; psInfo('Gelöscht.'); psRender();
   };
   // Alles übernehmen und die Oberfläche neu aufbauen
-  function applyState(state, cam) {
+  function applyState(state, cam, extra = {}) {
     if (P.on) stopAuto();
     fingers.clear(); for (let k = 0; k < 6; k++) killVoice(k, .05);
     kvoices.forEach(v => { try { v.src.stop(); } catch (e) {} }); kvoices.clear();
@@ -2301,9 +2301,12 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
     syncFlip();
     ['headDwell', 'headGain'].forEach(id => { $(id).value = String(S[id]); });
     send.gain.setTargetAtTime(verbGain(S.verb || 0), ctx.currentTime, .03);
-    toneEdit = false; renderInstruments(); boot(); circleSync(); applyMode(); layout(); wake();
+    press($('chords'), $('c-' + (S.chord || 'Leer')));         // Gitarre: gewählter Griff
+    toneEdit = false; renderInstruments(); boot(); circleSync(); applyMode(); setMenu(!!S.menuHidden); layout(); wake();
     try { history.replaceState(null, '', location.pathname + (S.family === 'piano' ? '?klavier' : '?gitarre')); } catch (e) {}
+    micOn = extra.mic !== false; try { applyMic(); } catch (e) {}
     if (cam && !camStream) startCamera(); else if (!cam && camStream) stopCamera();
+    if (extra.head && !HEAD.on && S.mode === 'smart') headStart();
   }
   // Export: eine JSON-Datei mit allen Presets (iPad: Teilen-Menü → „In Dateien sichern“)
   async function psExport() {
@@ -2340,7 +2343,7 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
       if (!data || data.app !== 'saitenzug' || !list.length) { psInfo('Das ist keine Preset-Datei dieser App.', true); return; }
       const clash = list.filter(p => psAt(p.slot)).length;
       if (clash && !confirm(clash + ' belegte Plätze werden durch die Datei ersetzt. Weiter?')) return;
-      list.forEach(p => { psList = psList.filter(x => x.slot !== p.slot).concat([{ slot: p.slot, name: String(p.name || ('Preset ' + p.slot)).slice(0, 30), date: p.date || '', cam: !!p.cam, state: p.state }]); });
+      list.forEach(p => { psList = psList.filter(x => x.slot !== p.slot).concat([{ slot: p.slot, name: String(p.name || ('Preset ' + p.slot)).slice(0, 30), date: p.date || '', cam: !!p.cam, mic: p.mic !== false, head: !!p.head, state: p.state }]); });
       psStore(); psRender(); psInfo(list.length + (list.length === 1 ? ' Preset' : ' Presets') + ' importiert.');
     } catch (e) { psInfo('Datei konnte nicht gelesen werden.', true); }
   };
