@@ -962,7 +962,16 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
   // Ton einer „Saite“ eines Akkords (Gitarre: Bund + Stimmung, Klavier: Stimme der Lage)
   // Loslassen beendet den Ton: Blas-/Streichinstrumente immer, Klavier/E-Piano nur ohne Pedal
   const releaseOnUp = () => piano() && (inst().hold || (inst().pedal && !S.ring));
-  function releaseStrings(list, chord) { list.forEach(s => { if (voices[s] && (!chord || pickChord[s] === chord)) killVoice(s, inst().hold ? .06 : .09); }); }
+  // Klavier-Familie: Akkord- und Tonfelder spielen über die vielstimmigen Tasten-Stimmen – so klingen mit Pedal
+  // auch nacheinander gespielte Töne/Akkorde weiter und schneiden sich nicht gegenseitig ab
+  function pianoNote(s, midi, vel, delay = 0) {
+    playKey(midi, vel, delay);
+    const kick = () => { wobble[s] = Math.max(wobble[s], vel); wake(); };
+    if (delay > .02) setTimeout(kick, delay * 1000); else kick();
+  }
+  function releaseStrings(list, chord) {
+    if (piano()) { list.forEach(s => { const m = chord ? noteOf(chord, s) : null; if (m !== null && m !== undefined) releaseKey(m); }); return; }
+    list.forEach(s => { if (voices[s] && (!chord || pickChord[s] === chord)) killVoice(s, inst().hold ? .06 : .09); }); }
   let toneEdit = false;
   const toneEditOn = () => toneEdit && piano() && !isDrums() && !S.circle && !S.pillars;
   const gap = () => piano() ? .002 : .012;                    // Klavier: Akkord fast gleichzeitig, Gitarre: kurzer Anschlag
@@ -990,6 +999,7 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
     const delay = Math.max(0, t - ctx.currentTime), c = P.chord;
     const hit = (s, vel, d, short) => {
       const n = noteOf(c, s); if (n === null || n === undefined) return null;
+      if (piano()) { pickChord[s] = c; pianoNote(s, n, vel, d); if (!S.ring || inst().hold) setTimeout(() => releaseKey(n), (d + 60 / S.bpm) * 1000); return null; }   // ohne Pedal: Taste nach einem Schlag loslassen
       const v = pluck(s, n, 0, vel, d); pickChord[s] = c;
       if (v && short) v.gain.gain.setTargetAtTime(0, t + d - delay + .1, .025);
     };
@@ -1119,6 +1129,7 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
     const n = noteOf(chord, s);
     if (n === null) return;                                    // muted string in this chord
     pickChord[s] = chord;
+    if (piano()) { pianoNote(s, n, vel, delay); return; }      // Klavier: jede Taste eine eigene Stimme (Pedal hält alles)
     pluck(s, n, 0, vel, delay);
   }
   function pointerMove(e) {
@@ -1394,12 +1405,13 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
   // eigene Stimmen pro Taste (vielstimmig), Pedal = „Ausklingen“
   const kvoices = new Map();
   const keyLit = new Map();                                   // Taste losgelassen: noch kurz gelb
-  function playKey(midi, vel = .8) {
+  function playKey(midi, vel = .8, delay = 0) {
     const bank = banks[S.inst]; if (!bank) return;
     if (ctx.state !== 'running') ctx.resume();
-    const old = kvoices.get(midi); if (old) { old.gain.gain.setTargetAtTime(0, ctx.currentTime, .02); try { old.src.stop(ctx.currentTime + .15); } catch (e) {} }
+    const t = ctx.currentTime + delay;
+    const old = kvoices.get(midi); if (old) { old.gain.gain.cancelScheduledValues(t); old.gain.gain.setTargetAtTime(0, t, .02); try { old.src.stop(t + .15); } catch (e) {} }
     const b = sampleFor(bank, midi); if (b === null) return;
-    const smp = bank[b], t = ctx.currentTime;
+    const smp = bank[b];
     const src = ctx.createBufferSource(), gain = ctx.createGain(); src.buffer = smp.buffer;
     const rate = Math.pow(2, (midi - b) / 12); src.playbackRate.value = rate;
     const dur = (smp.buffer.duration - smp.offset) / rate;
@@ -2143,7 +2155,7 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
       HEAD.hx = Math.max(G.cx - reach, Math.min(G.cx + reach, G.cx + (HEAD.px - .5) * 2 * reach));
       HEAD.hy = Math.max(G.cy - reach, Math.min(G.cy + reach, G.cy + (HEAD.py - .5) * 2 * reach));
       i = circleSector(HEAD.hx, HEAD.hy, G, HEAD.idx);
-      if (i < 0) { if (HEAD.held && piano() && inst().hold) { releaseStrings(sounding(HEAD.held), HEAD.held); HEAD.held = null; } HEAD.idx = -1; HEAD.prog = 0; HEAD.fired = -1; wake(); return; }
+      if (i < 0) { if (HEAD.held && releaseOnUp()) { releaseStrings(sounding(HEAD.held), HEAD.held); HEAD.held = null; } HEAD.idx = -1; HEAD.prog = 0; HEAD.fired = -1; wake(); return; }
     } else {
       i = Math.max(0, Math.min(n - 1, Math.floor(HEAD.px * n)));
       if (HEAD.idx >= 0 && HEAD.idx < n && i !== HEAD.idx) {  // etwas Spielraum am Rand, damit es nicht flackert
@@ -2151,7 +2163,7 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
         if (edge > -.12 && edge < 1.12) i = HEAD.idx;
       }
     }
-    if (i !== HEAD.idx) { if (HEAD.held && piano() && inst().hold) { releaseStrings(sounding(HEAD.held), HEAD.held); HEAD.held = null; } HEAD.idx = i; HEAD.since = now; HEAD.fired = -1; }
+    if (i !== HEAD.idx) { if (HEAD.held && releaseOnUp()) { releaseStrings(sounding(HEAD.held), HEAD.held); HEAD.held = null; } HEAD.idx = i; HEAD.since = now; HEAD.fired = -1; }
     const dwell = +S.headDwell || 0, chord = list[i];
     const playing = P.on ? (P.next || P.chord) : null;
     if (HEAD.fired === i && (!P.on || playing === chord)) HEAD.prog = 1;
