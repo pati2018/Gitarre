@@ -60,6 +60,9 @@ button:focus-visible, select:focus-visible { outline: 3px solid var(--rose); out
 /* Drehregler für die Autoplay-Muster (Aus, 1, 2, 3 …) */
 .knobwrap { display: flex; align-items: center; gap: 6px; flex: none; }
 .knob { width: 56px; height: 56px; flex: none; cursor: grab; touch-action: none; border-radius: 50%; }
+.knob.sm { width: 48px; height: 48px; }
+.knob.sm .val { font-size: 34px; }
+.knob.sm.off .val { font-size: 22px; }
 .knob:focus-visible { outline: 3px solid var(--rose); outline-offset: 2px; }
 .knob svg { width: 100%; height: 100%; display: block; overflow: visible; }
 .knob .dot { fill: var(--rose-soft); opacity: .5; }
@@ -132,7 +135,7 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
       <div class="group" id="instruments" role="group" aria-label="Instrument"></div>
       <span class="spacer"></span>
       <div class="group" role="group" aria-label="Einstellungen">
-        <button id="reverb" aria-pressed="true">Hall</button>
+        <div class="knobwrap"><div class="knob sm" id="kVerb" role="slider" tabindex="0" aria-label="Hall"></div><span class="label">Hall</span></div>
         <button id="flip" aria-pressed="false">Spiegeln</button>
         <button id="camera" aria-pressed="false">Kamera</button>
         <button id="mic" aria-pressed="false" hidden>Mikro</button>
@@ -249,9 +252,11 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
     blues: ['Blues', [0, 3, 5, 6, 7, 10]], moll: ['Natürlich Moll', [0, 2, 3, 5, 7, 8, 10]], dur: ['Dur', [0, 2, 4, 5, 7, 9, 11]],
   };
 
-  const S = { inst: 'steel', chord: 'Am', root: 9, scale: '', names: false, ring: true, reverb: true, flip: false, offset: 0, mode: 'fret', key: 'A-Moll', auto: '', bpm: 96 };
+  const S = { inst: 'steel', chord: 'Am', root: 9, scale: '', names: false, ring: true, reverb: true, verb: 3, flip: false, offset: 0, mode: 'fret', key: 'A-Moll', auto: '', bpm: 96 };
   try { Object.assign(S, JSON.parse(localStorage.getItem('saitenzug') || '{}')); } catch (e) {}
   S.names = false;
+  if (S.reverb === false && S.verbSet !== true) S.verb = 0;
+  S.verb = Math.max(0, Math.min(10, Math.round(+S.verb || 0)));
   if (S.auto && !PATTERNS[S.auto]) S.auto = '';
   const save = () => { try { localStorage.setItem('saitenzug', JSON.stringify(S)); } catch (e) {} };
 
@@ -266,13 +271,15 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
   const comp = ctx.createDynamicsCompressor();
   comp.threshold.value = -14; comp.ratio.value = 6; comp.attack.value = .003; comp.release.value = .2;
   const dry = ctx.createGain();
-  const send = ctx.createGain(); send.gain.value = S.reverb ? .2 : 0;
+  const send = ctx.createGain();
+  const verbGain = lvl => lvl * .1;                            // Hall-Regler 0 … 10
+  send.gain.value = verbGain(S.verb);
   const verb = ctx.createConvolver();
   verb.buffer = (() => {
-    const len = Math.floor(ctx.sampleRate * 1.7), b = ctx.createBuffer(2, len, ctx.sampleRate);
+    const len = Math.floor(ctx.sampleRate * 2.4), b = ctx.createBuffer(2, len, ctx.sampleRate);
     for (let c = 0; c < 2; c++) {
       const d = b.getChannelData(c); let lp = 0;
-      for (let i = 0; i < len; i++) { lp += .32 * ((Math.random() * 2 - 1) - lp); d[i] = lp * Math.pow(1 - i / len, 3.2); }
+      for (let i = 0; i < len; i++) { lp += .32 * ((Math.random() * 2 - 1) - lp); d[i] = lp * Math.pow(1 - i / len, 2.6); }
     }
     return b;
   })();
@@ -773,7 +780,6 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
     b.onclick = () => { S[key] = !S[key]; b.setAttribute('aria-pressed', S[key]); save(); after && after(); wake(); };
   };
   toggle('ring', 'ring');
-  toggle('reverb', 'reverb', () => send.gain.setTargetAtTime(S.reverb ? .2 : 0, ctx.currentTime, .02));
   toggle('flip', 'flip', layout);
 
   const HINTS = {
@@ -818,27 +824,25 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
     if (P.on) P.step = 0;
     save(); applyMode(); wake();
   }
-  function renderKnobs() {
-    Object.keys(KNOBS).forEach(id => {
-      const el = $(id), n = KNOBS[id].length, pos = knobPos(id);
-      let dots = '';
-      for (let i = 0; i <= n; i++) {
-        const [x, y] = polar(knobAngle(i, n), 46);
-        dots += `<circle class="dot${i === pos ? ' on' : ''}" cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${i === 0 ? 4.5 : 6}"/>`;
-      }
-      const [x1, y1] = polar(knobAngle(pos, n), 22), [x2, y2] = polar(knobAngle(pos, n), 33);
-      el.innerHTML = `<svg viewBox="0 0 100 100" aria-hidden="true">${dots}<circle class="body" cx="50" cy="50" r="36"/>` +
-        `<line class="ptr" x1="${x1.toFixed(1)}" y1="${y1.toFixed(1)}" x2="${x2.toFixed(1)}" y2="${y2.toFixed(1)}"/>` +
-        `<text class="val" x="50" y="52">${pos || 'Aus'}</text></svg>`;
-      el.classList.toggle('off', !pos);
-      el.setAttribute('aria-valuemin', 0); el.setAttribute('aria-valuemax', n); el.setAttribute('aria-valuenow', pos);
-      el.setAttribute('aria-valuetext', pos ? 'Muster ' + pos : 'Aus');
-    });
+  // Allgemeiner Drehregler: Stufen 0 … n. Tippen = eine Stufe weiter, Ziehen = frei drehen, Pfeiltasten.
+  function drawKnob(el, pos, n, text) {
+    let dots = '';
+    for (let i = 0; i <= n; i++) {
+      const [x, y] = polar(knobAngle(i, n), 46);
+      dots += `<circle class="dot${i === pos ? ' on' : ''}" cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${i === 0 ? 4.5 : (n > 8 ? 5 : 6)}"/>`;
+    }
+    const [x1, y1] = polar(knobAngle(pos, n), 22), [x2, y2] = polar(knobAngle(pos, n), 33);
+    el.innerHTML = `<svg viewBox="0 0 100 100" aria-hidden="true">${dots}<circle class="body" cx="50" cy="50" r="36"/>` +
+      `<line class="ptr" x1="${x1.toFixed(1)}" y1="${y1.toFixed(1)}" x2="${x2.toFixed(1)}" y2="${y2.toFixed(1)}"/>` +
+      `<text class="val" x="50" y="52">${pos || 'Aus'}</text></svg>`;
+    el.classList.toggle('off', !pos);
+    el.setAttribute('aria-valuemin', 0); el.setAttribute('aria-valuemax', n); el.setAttribute('aria-valuenow', pos);
+    el.setAttribute('aria-valuetext', pos ? text + ' ' + pos : 'Aus');
   }
-  Object.keys(KNOBS).forEach(id => {
-    const el = $(id); let drag = null;
+  function wireKnob(el, n, get, set) {
+    let drag = null;
     const posFromPointer = e => {
-      const r = el.getBoundingClientRect(), n = KNOBS[id].length;
+      const r = el.getBoundingClientRect();
       let deg = Math.atan2(e.clientX - (r.left + r.width / 2), -(e.clientY - (r.top + r.height / 2))) * 180 / Math.PI;
       deg = Math.max(START, Math.min(START + SWEEP, deg));
       return Math.round((deg - START) / SWEEP * n);
@@ -847,18 +851,24 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
     el.addEventListener('pointermove', e => {
       if (!drag) return;
       if (!drag.moved && Math.hypot(e.clientX - drag.x, e.clientY - drag.y) > 8) drag.moved = true;
-      if (drag.moved) setKnob(id, posFromPointer(e));
+      if (drag.moved) set(posFromPointer(e));
     });
-    const end = () => {
-      if (drag && !drag.moved) { const n = KNOBS[id].length; setKnob(id, (knobPos(id) + 1) % (n + 1)); }
-      drag = null;
-    };
-    el.addEventListener('pointerup', end);
+    el.addEventListener('pointerup', () => { if (drag && !drag.moved) set((get() + 1) % (n + 1)); drag = null; });
     el.addEventListener('pointercancel', () => { drag = null; });
     el.addEventListener('keydown', e => {
       const d = { ArrowRight: 1, ArrowUp: 1, ArrowLeft: -1, ArrowDown: -1 }[e.key];
-      if (d) { e.preventDefault(); setKnob(id, knobPos(id) + d); }
+      if (d) { e.preventDefault(); set(Math.max(0, Math.min(n, get() + d))); }
     });
+  }
+  function renderKnobs() {
+    Object.keys(KNOBS).forEach(id => drawKnob($(id), knobPos(id), KNOBS[id].length, 'Muster'));
+    drawKnob($('kVerb'), S.verb, 10, 'Hall');
+  }
+  Object.keys(KNOBS).forEach(id => wireKnob($(id), KNOBS[id].length, () => knobPos(id), p => setKnob(id, p)));
+  wireKnob($('kVerb'), 10, () => S.verb, p => {
+    S.verb = Math.max(0, Math.min(10, p)); S.verbSet = true;
+    send.gain.setTargetAtTime(verbGain(S.verb), ctx.currentTime, .03);
+    save(); renderKnobs();
   });
   renderKnobs();
   const tempo = d => { S.bpm = Math.max(50, Math.min(180, S.bpm + d)); save(); $('bpmLabel').textContent = S.bpm + ' BPM'; };
