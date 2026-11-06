@@ -235,6 +235,7 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
       <button id="pedal2" aria-pressed="true" title="Pedal: Töne klingen nach dem Loslassen weiter">Pedal</button>
       <button id="circleBtn" aria-pressed="false" title="Akkorde im Kreis anordnen – gut für die Kopfsteuerung">◯ Kreis</button>
       <button id="bwBtn" aria-pressed="false" title="Boomwhacker-Farben für Kreis und Säulen">🎨 Farben</button>
+      <button id="ptBtn" aria-pressed="false" title="In den Säulen zusätzlich die einzelnen Töne des Akkords spielen">♪ Einzeltöne</button>
       <button id="pillarBtn" aria-pressed="false" title="Akkorde als große Säulen nebeneinander (wie eine Panflöte)">▮▮▮ Säulen</button>
       <button id="headBtn" aria-pressed="false" title="Kopfsteuerung: die Nase führt einen Zeiger über die Akkorde">👃 Kopf</button>
       <span class="group" id="headOpts" hidden>
@@ -717,6 +718,14 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
   function bwOf(name) { const i = parseChord(name); return i ? BW[i.r] : null; }
   function inkOn(hex) { const n = parseInt(hex.slice(1), 16), r = n >> 16, gg = n >> 8 & 255, b = n & 255; return (r * 299 + gg * 587 + b * 114) / 1000 > 150 ? '#2a1610' : '#ffffff'; }
   function shade(hex, f) { const n = parseInt(hex.slice(1), 16), c = v => Math.max(0, Math.min(255, Math.round(v * f))); return `rgb(${c(n >> 16)},${c(n >> 8 & 255)},${c(n & 255)})`; }
+  // Säulen mit Einzeltönen: Kopfbereich = ganzer Akkord, darunter je ein Band pro Ton (oben hoch, unten tief)
+  const pillarTones = () => pillarsOn() && !!S.pillarTones;
+  const pillarHead = q => Math.min(110, q.h * .22);
+  function pillarBands(q, name) {
+    const ss = sounding(name).map(st => ({ s: st, m: noteOf(name, st) })).sort((a, b) => b.m - a.m);
+    const top = q.y + pillarHead(q), bot = q.y + q.h - Math.min(q.w * .35, 40), h = (bot - top) / Math.max(1, ss.length);
+    return ss.map((b, k) => ({ ...b, y0: top + k * h, y1: top + (k + 1) * h }));
+  }
   function pillarGeo() {
     const n = strips().length, gap = Math.max(8, Math.min(16, W * .012)), w = (W - gap * (n + 1)) / n, top = 10, maxH = H - 20;
     return Array.from({ length: n }, (_, i) => { const h = maxH; return { x: gap + i * (w + gap), y: top, w, h }; });
@@ -837,6 +846,14 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
       else { gr.addColorStop(0, on ? '#f7c56c' : fl ? '#6a3e2a' : '#2a1913'); gr.addColorStop(.5, on ? '#f0a83a' : fl ? '#5a3424' : '#1b0e0a'); gr.addColorStop(1, on ? '#c9862a' : fl ? '#4a2a1c' : '#120906'); }
       g.fillStyle = gr; g.beginPath(); if (g.roundRect) g.roundRect(q.x, q.y, q.w, q.h, [10, 10, q.w / 2, q.w / 2]); else g.rect(q.x, q.y, q.w, q.h); g.fill();
       g.lineWidth = col && (on || fl) ? 7 : 3; g.strokeStyle = col ? (on || fl ? '#ffffff' : wait ? '#2a1610' : 'rgba(255,255,255,.35)') : on ? '#2a1610' : wait ? '#f0a83a' : 'rgba(243,239,228,.4)'; g.stroke();
+      if (pillarTones()) pillarBands(q, name).forEach(bd => {
+        const act = wobble[bd.s] > .06 && pickChord[bd.s] === name;
+        g.fillStyle = act ? 'rgba(255,255,255,.75)' : col ? 'rgba(255,255,255,.18)' : 'rgba(243,239,228,.09)';
+        g.beginPath(); if (g.roundRect) g.roundRect(q.x + 7, bd.y0 + 3, q.w - 14, bd.y1 - bd.y0 - 6, 6); else g.rect(q.x + 7, bd.y0 + 3, q.w - 14, bd.y1 - bd.y0 - 6); g.fill();
+        g.fillStyle = act ? '#2a1610' : col ? inkOn(col) : 'rgba(243,239,228,.75)';
+        g.font = `600 ${Math.round(Math.max(12, Math.min((bd.y1 - bd.y0) * .4, 20)))}px "Barlow Condensed", "Arial Narrow", sans-serif`;
+        g.fillText(NOTE[bd.m % 12] + (Math.floor(bd.m / 12) - 1), q.x + q.w / 2, (bd.y0 + bd.y1) / 2);
+      });
       g.fillStyle = col ? inkOn(col) : on ? '#2a1610' : '#f3efe4';
       g.font = `600 ${Math.round(Math.max(18, Math.min(q.w * .34, 46)))}px "Barlow Condensed", "Arial Narrow", sans-serif`;
       g.fillText(name, q.x + q.w / 2, q.y + Math.min(60, q.h * .16));
@@ -1015,6 +1032,12 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
       const i = Q.findIndex(q => p.x >= q.x - 6 && p.x <= q.x + q.w + 6); if (i < 0 || !list[i]) return;
       const chord = list[i]; lastChord = chord;
       if (autoOn()) { startAuto(chord); fingers.set(e.pointerId, { type: 'hold', chord, ss: [], i, glide: 'strip', auto: true }); wake(); return; }
+      if (pillarTones() && p.y > Q[i].y + pillarHead(Q[i])) {   // einzelner Ton der Säule; senkrecht wischen = Arpeggio
+        const B = pillarBands(Q[i], chord), k = B.findIndex(bd => p.y >= bd.y0 && p.y < bd.y1);
+        const f = { type: 'pick', chord, col: i, pband: true, bi: k, played: new Set(), y: p.y, time: e.timeStamp };
+        if (k >= 0) { pick(B[k].s, .8, 0, chord); f.played.add(B[k].s); }
+        fingers.set(e.pointerId, f); wake(); return;
+      }
       flash[i] = e.timeStamp + 160; sounding(chord).forEach((s, n) => pick(s, .85, n * gap(), chord)); wake();
       fingers.set(e.pointerId, { type: 'hold', chord, ss: sounding(chord), i, glide: 'strip' });
       return;
@@ -1110,6 +1133,24 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
     if (f.type === 'key') {                                    // über die Tasten wischen = Glissando
       const k = keyAt(p.x, p.y);
       if (k && k.midi !== f.midi) { const old = f.midi; keyLit.set(old, performance.now() + 120); f.midi = k.midi; if (![...fingers.values()].some(o => o.type === 'key' && o.midi === old)) releaseKey(old); playKey(k.midi, .7); wake(); }
+      return;
+    }
+    if (f.type === 'pick' && f.pband && pillarsOn()) {          // Säulen-Töne: über die Bänder wischen, seitlich in die nächste Säule
+      const list = strips(), Q = pillarGeo();
+      let col = Q.findIndex(q => p.x >= q.x - 6 && p.x <= q.x + q.w + 6); if (col < 0) col = f.col;
+      if (col !== f.col && list[col]) {
+        if (releaseOnUp()) releaseStrings([...f.played], f.chord);
+        f.col = col; f.chord = list[col]; lastChord = f.chord; f.bi = -1; f.played = new Set();
+      }
+      const B = pillarBands(Q[f.col], f.chord), k = B.findIndex(bd => p.y >= bd.y0 && p.y < bd.y1);
+      if (k >= 0 && k !== f.bi) {
+        const from = f.bi < 0 ? k : f.bi, dir = k > from ? 1 : -1, steps = [];
+        for (let j = f.bi < 0 ? k : from + dir; dir > 0 ? j <= k : j >= k; j += dir) steps.push(j);
+        const dt = Math.max(1, e.timeStamp - f.time), vel = Math.max(.55, Math.min(1, .55 + Math.abs(p.y - f.y) / dt / 2.6));
+        steps.forEach((j, n) => { pick(B[j].s, vel, n * .007, f.chord); f.played.add(B[j].s); });
+        f.bi = k;
+      }
+      f.y = p.y; f.time = e.timeStamp; wake();
       return;
     }
     if (f.type === 'pick' && S.mode === 'smart' && f.col !== undefined) {   // seitlich in eine andere Spalte gleiten = neuer Akkord
@@ -1463,7 +1504,7 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
     const smart = S.mode === 'smart';
     $('rowFret').hidden = smart; $('rowSmart').hidden = !smart;
     press($('modes'), $(smart ? 'm-smart' : 'm-fret'));
-    $('hint').textContent = smart && pillarsOn() ? 'Säule antippen spielt den Akkord bzw. Ton. Mit dem Finger seitlich gleiten wechselt von Säule zu Säule.' : smart && toneEditOn() ? 'Töne wählen: Reihe antippen schaltet den Ton an oder aus (gestrichelt = aus). Die Auswahl wird sofort gespeichert. Zum Spielen wieder auf „fertig“ tippen.' : !smart ? (piano() ? HINTS.keys : HINTS.fret) : inst().noAuto && !S.circle ? 'Feld antippen spielt den Ton (bzw. den Akkord). Unter „✎ Akkorde/Töne“ legst du fest, was auf den 7 Feldern liegt.' : piano() && !autoOn() && !S.circle ? HINTS.pstrip : autoOn() ? HINTS.auto : S.circle ? 'Akkord im Kreis antippen schlägt ihn an. Mit der Kopfsteuerung: aus der Mitte in Richtung des Akkords schauen.' : HINTS.strip;
+    $('hint').textContent = smart && pillarTones() ? 'Oben auf den Namen tippen spielt den ganzen Akkord, ein Ton-Feld spielt den einzelnen Ton, senkrecht wischen spielt ein Arpeggio, seitlich gleiten wechselt die Säule.' : smart && pillarsOn() ? 'Säule antippen spielt den Akkord bzw. Ton. Mit dem Finger seitlich gleiten wechselt von Säule zu Säule.' : smart && toneEditOn() ? 'Töne wählen: Reihe antippen schaltet den Ton an oder aus (gestrichelt = aus). Die Auswahl wird sofort gespeichert. Zum Spielen wieder auf „fertig“ tippen.' : !smart ? (piano() ? HINTS.keys : HINTS.fret) : inst().noAuto && !S.circle ? 'Feld antippen spielt den Ton (bzw. den Akkord). Unter „✎ Akkorde/Töne“ legst du fest, was auf den 7 Feldern liegt.' : piano() && !autoOn() && !S.circle ? HINTS.pstrip : autoOn() ? HINTS.auto : S.circle ? 'Akkord im Kreis antippen schlägt ihn an. Mit der Kopfsteuerung: aus der Mitte in Richtung des Akkords schauen.' : HINTS.strip;
     $('bpmLabel').textContent = S.bpm + ' BPM';
     renderKnobs();
   }
@@ -2074,8 +2115,9 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
   });
   $('headBtn').onclick = () => (HEAD.on ? headStop() : headStart());
   $('toneEdit').onclick = () => { toneEdit = !toneEdit; if (toneEdit && P.on) stopAuto(); applyMode(); wake(); };
-  const circleSync = () => { $('circleBtn').setAttribute('aria-pressed', !!S.circle); $('pillarBtn').setAttribute('aria-pressed', !!S.pillars && !S.circle); $('bwBtn').setAttribute('aria-pressed', !!S.bw); $('bwBtn').hidden = !(S.circle || S.pillars); };
+  const circleSync = () => { $('circleBtn').setAttribute('aria-pressed', !!S.circle); $('pillarBtn').setAttribute('aria-pressed', !!S.pillars && !S.circle); $('bwBtn').setAttribute('aria-pressed', !!S.bw); $('bwBtn').hidden = !(S.circle || S.pillars); $('ptBtn').hidden = !(S.pillars && !S.circle); $('ptBtn').setAttribute('aria-pressed', !!S.pillarTones); };
   $('circleBtn').onclick = () => { S.circle = !S.circle; if (S.circle) S.pillars = false; HEAD.idx = -1; save(); circleSync(); applyMode(); layout(); wake(); };
+  $('ptBtn').onclick = () => { S.pillarTones = !S.pillarTones; save(); circleSync(); applyMode(); wake(); };
   $('bwBtn').onclick = () => { S.bw = !S.bw; save(); circleSync(); wake(); };
   $('pillarBtn').onclick = () => { S.pillars = !S.pillars; if (S.pillars) S.circle = false; HEAD.idx = -1; save(); circleSync(); applyMode(); layout(); wake(); };
   circleSync();
