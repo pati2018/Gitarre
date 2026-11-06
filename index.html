@@ -910,7 +910,7 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
       }
       if (piano()) {                                           // Klavier: sechs Tonreihen (oben hoch, unten Bass)
         for (let s = 0; s < 6; s++) {
-          const n = pianoVoicing(name)[s], off = noteOf(name, s) === null, y = stringY(s), act = !off && wobble[s] > .06 && pickChord[s] === name;
+          const n0 = pianoVoicing(name)[s], n = n0 === null ? null : n0 + octShift(name), off = noteOf(name, s) === null, y = stringY(s), act = !off && wobble[s] > .06 && pickChord[s] === name;
           if (off) { g.strokeStyle = 'rgba(243,239,228,.12)'; g.setLineDash([5, 5]); g.lineWidth = 1.5; g.strokeRect(x + 6.5, y - L.sp * .4, w - 13, L.sp * .8); g.setLineDash([]); if (n !== null) { g.fillStyle = 'rgba(243,239,228,.22)'; g.font = `600 ${Math.max(12, Math.min(L.sp * .32, 18))}px "Barlow Condensed", "Arial Narrow", sans-serif`; g.fillText(NOTE[n % 12] + (Math.floor(n / 12) - 1), x + w / 2, y); } continue; }
           g.fillStyle = act ? `rgba(240,168,58,${.25 + wobble[s] * .5})` : (s < 2 ? 'rgba(243,239,228,.05)' : 'rgba(243,239,228,.1)');
           g.beginPath(); if (g.roundRect) g.roundRect(x + 6, y - L.sp * .4, w - 12, L.sp * .8, 6); else g.rect(x + 6, y - L.sp * .4, w - 12, L.sp * .8); g.fill();
@@ -976,7 +976,14 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
     const x = slots().find(y => y.on && slotName(y) === c) || slots().find(y => slotName(y) === c);
     return x && x.q !== 'note' ? (x.mask || TRIAD) : null;
   }
-  const noteOf = (c, s) => piano() ? (() => { const m = maskFor(c); return m && !m[s] ? null : pianoVoicing(c)[s]; })() : (CHORDS[c] && CHORDS[c][s] !== null ? TUNING[s] + CHORDS[c][s] : null);
+  // Klavier-Akkorde: Oktave je Platz (Standard 4 = Dreiklang um C4); verschiebt alle Töne des Akkords
+  function octShift(c) {
+    if (previewMask && previewMask.name === c) return previewMask.shift || 0;
+    if (!piano() || isDrums()) return 0;
+    const x = slots().find(y => y.on && slotName(y) === c) || slots().find(y => slotName(y) === c);
+    return x && x.q !== 'note' && x.o ? Math.max(-24, Math.min(24, (x.o - 4) * 12)) : 0;
+  }
+  const noteOf = (c, s) => piano() ? (() => { const m = maskFor(c); if (m && !m[s]) return null; const v = pianoVoicing(c)[s]; return v === null ? null : v + octShift(c); })() : (CHORDS[c] && CHORDS[c][s] !== null ? TUNING[s] + CHORDS[c][s] : null);
   const sounding = c => [0, 1, 2, 3, 4, 5].filter(s => noteOf(c, s) !== null);
   function playStep(ev, pat, t) {
     const delay = Math.max(0, t - ctx.currentTime), c = P.chord;
@@ -1663,9 +1670,10 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
   const editName = () => editQ === 'note' ? (isDrums() ? drumName(editR, editO) : noteName(editR, editO, S.key)) : chordName(editR, editQ, S.key);
   let editMask = [1, 1, 1, 1, 1, 1];
   function renderTones() {}                                   // Töne wählt man direkt in der Leiste („✎ Töne wählen“)
-  const showEditName = () => { $('cwName').textContent = editName(); $('octBox').hidden = editQ !== 'note'; renderTones(); };
+  const octOn = () => editQ === 'note' || (piano() && !isDrums());
+  const showEditName = () => { $('cwName').textContent = editName() + (editQ !== 'note' && piano() && !isDrums() ? ' · Oktave ' + editO : ''); $('octBox').hidden = !octOn(); renderTones(); };
   const wRoot = makeWheel($('wRoot'), i => { editR = i; showEditName(); });
-  const wType = makeWheel($('wType'), i => { editQ = types()[i][0]; showEditName(); if (editQ === 'note') requestAnimationFrame(() => wOct.set(OCTS.indexOf(editO))); });
+  const wType = makeWheel($('wType'), i => { editQ = types()[i][0]; showEditName(); if (octOn()) requestAnimationFrame(() => wOct.set(OCTS.indexOf(editO))); });
   const wOct = makeWheel($('wOct'), i => { editO = OCTS[i]; showEditName(); });
   function openWheel(i) {
     const x = slots()[i]; editSlot = i; editR = x.r; editQ = x.q; editO = x.o || 4; editMask = x.mask ? [...x.mask] : [...TRIAD];
@@ -1681,15 +1689,15 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
   $('cwOk').onclick = () => {
     editR = wRoot.get(); editQ = types()[wType.get()][0]; editO = OCTS[wOct.get()] || editO;
     const sl = slots().map(x => ({ ...x })); sl[editSlot] = { ...sl[editSlot], r: editR, q: editQ };
-    if (editQ === 'note') sl[editSlot].o = editO; else delete sl[editSlot].o;
+    if (editQ === 'note' || (piano() && !isDrums() && editO !== 4)) sl[editSlot].o = editO; else delete sl[editSlot].o;
     if (piano() && !isDrums() && editQ !== 'note' && !sameMask(editMask, TRIAD)) sl[editSlot].mask = [...editMask]; else delete sl[editSlot].mask;
     $('cpEdit').hidden = true; $('cpMain').hidden = false; saveSlots(sl);
   };
   $('cwPlay').onclick = () => {
     if (ctx.state !== 'running') ctx.resume();
-    editR = wRoot.get(); editQ = types()[wType.get()][0]; if (editQ === 'note') editO = OCTS[wOct.get()] || editO;
+    editR = wRoot.get(); editQ = types()[wType.get()][0]; if (octOn()) editO = OCTS[wOct.get()] || editO;
     const c = editName();
-    previewMask = piano() && editQ !== 'note' ? { name: c, mask: editMask } : null;
+    previewMask = piano() && editQ !== 'note' ? { name: c, mask: editMask, shift: Math.max(-24, Math.min(24, (editO - 4) * 12)) } : null;
     sounding(c).forEach((st, n) => pick(st, .85, n * .025, c));
     previewMask = null;
   };
