@@ -1035,7 +1035,7 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
     }
     if (f.type === 'key') {                                    // über die Tasten wischen = Glissando
       const k = keyAt(p.x, p.y);
-      if (k && k.midi !== f.midi) { const old = f.midi; f.midi = k.midi; if (![...fingers.values()].some(o => o.type === 'key' && o.midi === old)) releaseKey(old); playKey(k.midi, .7); wake(); }
+      if (k && k.midi !== f.midi) { const old = f.midi; keyLit.set(old, performance.now() + 120); f.midi = k.midi; if (![...fingers.values()].some(o => o.type === 'key' && o.midi === old)) releaseKey(old); playKey(k.midi, .7); wake(); }
       return;
     }
     if (f.type === 'pick' && S.mode === 'smart' && f.col !== undefined) {   // seitlich in eine andere Spalte gleiten = neuer Akkord
@@ -1078,7 +1078,7 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
     fingers.delete(e.pointerId);
     if (f.type === 'hold' && f.auto) { wake(); return; }
     if ((f.type === 'hold' || (f.type === 'pick' && f.played)) && releaseOnUp()) { releaseStrings(f.ss || [...f.played], f.chord); wake(); return; }
-    if (f.type === 'key') { if (![...fingers.values()].some(o => o.type === 'key' && o.midi === f.midi)) releaseKey(f.midi); wake(); return; }
+    if (f.type === 'key') { keyLit.set(f.midi, performance.now() + 120); if (![...fingers.values()].some(o => o.type === 'key' && o.midi === f.midi)) releaseKey(f.midi); wake(); return; }
     if (f.type !== 'fret') return;
     const next = topFinger(f.s), v = voices[f.s];
     if (next) { setPitch(v, TUNING[f.s] + next.fret + next.bend, .006); }     // pull-off
@@ -1109,7 +1109,7 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
       if (wobble[s]) busy = true;
     }
     if (S.mode === 'smart') { drawStrips(ts); if (P.on || HEAD.on || flash.some(f => f > ts)) busy = true; }
-    else if (piano()) { drawKeyboard(); if (kvoices.size) busy = true; }
+    else if (piano()) { drawKeyboard(); const t = performance.now(); if ([...keyLit.values()].some(v => v > t)) busy = true; }
     else { markers(); fingerDots(); }
     if (busy) wake();
   }
@@ -1206,7 +1206,7 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
   }
   function drawKeyboard() {
     const scale = SCALES[S.scale] ? SCALES[S.scale][1] : [], down = new Set([...fingers.values()].filter(f => f.type === 'key').map(f => f.midi));
-    const lit = m => down.has(m) || kvoices.has(m);
+    const now = performance.now(), lit = m => down.has(m) || (keyLit.get(m) || 0) > now;   // gelb nur, solange die Taste gedrückt ist (kurz nachleuchten)
     const inScale = m => scale.length && scale.includes(((m - S.root) % 12 + 12) % 12);
     g.textAlign = 'center'; g.textBaseline = 'middle';
     KB.keys.forEach(k => {
@@ -1236,6 +1236,7 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
   }
   // eigene Stimmen pro Taste (vielstimmig), Pedal = „Ausklingen“
   const kvoices = new Map();
+  const keyLit = new Map();                                   // Taste losgelassen: noch kurz gelb
   function playKey(midi, vel = .8) {
     const bank = banks[S.inst]; if (!bank) return;
     if (ctx.state !== 'running') ctx.resume();
