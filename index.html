@@ -114,7 +114,32 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
 .cp-info { font-size: 14px; color: var(--rose-soft); }
 .cp-list { display: flex; flex-wrap: wrap; gap: 6px; }
 .cp-list { gap: 10px; }
-.cp-chip { display: flex; align-items: center; gap: 2px; padding: 3px; border-radius: 9px; background: rgba(255,255,255,.18); border: 1.5px solid var(--foam-deep); }
+.cp-chip { display: grid; grid-template-columns: 34px auto 34px; grid-template-rows: auto auto; align-items: center; gap: 2px 2px; padding: 4px; border-radius: 9px; background: rgba(255,255,255,.18); border: 1.5px solid var(--foam-deep); }
+.cp-chip.off { opacity: .6; }
+.cp-chip .cp-name { grid-column: 2; grid-row: 1; background: var(--rose); color: var(--pearl); border-color: var(--rose); }
+.cp-chip .cp-mv:first-child { grid-column: 1; grid-row: 1; }
+.cp-chip .cp-mv:last-child { grid-column: 3; grid-row: 1; }
+.cp-chip .cp-vis { grid-column: 1 / 4; grid-row: 2; height: 30px; font-size: 14px; letter-spacing: .05em; }
+.cp-chip .cp-vis[aria-pressed="false"] { background: transparent; color: var(--rose); border-color: var(--rose-soft); }
+.cp-head .cw-name { font-size: 26px; color: var(--rose); }
+.cp-wheels { display: flex; gap: 12px; }
+.wheelbox { position: relative; }
+.wheel { width: 110px; height: 156px; overflow-y: auto; scroll-snap-type: y mandatory; border-radius: 10px; background: var(--rose); color: var(--pearl); scrollbar-width: none; -webkit-overflow-scrolling: touch; }
+.wheel.wide { width: 130px; }
+.wheel::-webkit-scrollbar { display: none; }
+.w-pad { height: 52px; }
+.w-item { height: 52px; line-height: 52px; text-align: center; font-size: 24px; scroll-snap-align: center; opacity: .4; cursor: pointer; transition: opacity .1s; }
+.w-item.sel { opacity: 1; color: var(--amber); font-size: 28px; }
+@media (max-height: 500px) {
+  .chordpick { top: 6px; padding: 8px; gap: 6px; }
+  .cp-head { font-size: 16px; }
+  .cp-list { gap: 6px; }
+  .cp-chip { padding: 3px; }
+  .cp-chip .cp-name, .cp-chip .cp-mv { height: 34px; }
+  .cp-chip .cp-vis { height: 24px; font-size: 13px; }
+  .cp-acts button { height: 34px; }
+}
+.w-band { position: absolute; left: 4px; right: 4px; top: 52px; height: 52px; border-top: 2px solid rgba(240,168,58,.55); border-bottom: 2px solid rgba(240,168,58,.55); pointer-events: none; }
 .cp-chip .cp-name { min-width: 64px; font-size: 20px; }
 .cp-chip .cp-mv { width: 34px; padding: 0; font-size: 20px; border-color: transparent; }
 .cp-chip .cp-mv:disabled { visibility: hidden; }
@@ -188,9 +213,19 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
   </div>
   <div class="stage" id="stage">
     <div class="chordpick" id="chordPick" role="dialog" aria-label="Akkorde auswählen" hidden>
-      <div class="cp-head"><strong>Welche Akkorde? In welcher Reihenfolge?</strong><span class="cp-info" id="cpInfo"></span></div>
-      <div class="cp-list" id="cpList"></div>
-      <div class="cp-acts"><button id="cpAll">Alle</button><button id="cpPop">C · Am · F · G</button><button id="cpReset">↺ Reihenfolge</button><button class="go" id="cpDone">Fertig</button></div>
+      <div id="cpMain">
+        <div class="cp-head"><strong>Akkorde</strong><span class="cp-info" id="cpInfo"></span></div>
+        <div class="cp-list" id="cpList"></div>
+        <div class="cp-acts"><button id="cpAll">Alle zeigen</button><button id="cpPop">C · Am · F · G</button><button id="cpReset">↺ Wie Tonart</button><button class="go" id="cpDone">Fertig</button></div>
+      </div>
+      <div id="cpEdit" hidden>
+        <div class="cp-head"><strong>Platz <span id="cwSlot"></span>:</strong><span class="cw-name" id="cwName"></span></div>
+        <div class="cp-wheels">
+          <div class="wheelbox"><div class="wheel" id="wRoot" aria-label="Grundton"></div><div class="w-band"></div></div>
+          <div class="wheelbox"><div class="wheel wide" id="wType" aria-label="Akkordart"></div><div class="w-band"></div></div>
+        </div>
+        <div class="cp-acts"><button id="cwPlay">▶ Anhören</button><button id="cwBack">Abbrechen</button><button class="go" id="cwOk">Übernehmen</button></div>
+      </div>
     </div>
     <video id="cam" playsinline muted autoplay hidden></video>
     <canvas id="neck" aria-label="Griffbrett mit sechs Saiten. Tippen spielt einen Ton, Ziehen verändert die Tonhöhe."></canvas>
@@ -262,14 +297,17 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
     'Em': [0, 2, 2, 0, 0, 0], 'F': [1, 3, 3, 2, 1, 1], 'G': [3, 2, 0, 0, 0, 3], 'H7': [null, 2, 1, 2, 0, 2],
   };
   /* ---------- Alle Dur- und Molltonarten mit leitereigenen Akkorden ---------- */
-  // Dur: I ii iii IV V vi vii° + V7.  Moll (natürlich): i ii° III iv v VI VII + V7 (aus harmonisch Moll).
+  // Dur: I ii iii IV V vi vii°.  Moll (natürlich): i ii° III iv v VI VII.  Jeder Platz lässt sich frei umstellen.
   const SHARP = ['C', 'Cis', 'D', 'Dis', 'E', 'F', 'Fis', 'G', 'Gis', 'A', 'Ais', 'H'];
   const FLAT  = ['C', 'Des', 'D', 'Es', 'E', 'F', 'Ges', 'G', 'As', 'A', 'B', 'H'];
-  const SUFFIX = { maj: '', min: 'm', dom7: '7', dim: '°' };
+  const SUFFIX = { maj: '', min: 'm', dom7: '7', min7: 'm7', maj7: 'maj7', sus4: 'sus4', dim: '°' };
+  const QUALS = [['maj', 'Dur'], ['min', 'Moll'], ['dom7', '7'], ['min7', 'm7'], ['maj7', 'maj7'], ['sus4', 'sus4'], ['dim', 'dim °']];
   const OPEN = {                                               // offene Griffe, wo es sie gibt
     '0maj': [null, 3, 2, 0, 1, 0], '0dom7': [null, 3, 2, 3, 1, 0],
     '2maj': [null, null, 0, 2, 3, 2], '2min': [null, null, 0, 2, 3, 1], '2dom7': [null, null, 0, 2, 1, 2],
     '7maj': [3, 2, 0, 0, 0, 3], '7dom7': [3, 2, 0, 0, 0, 1], '11dom7': [null, 2, 1, 2, 0, 2],
+    '0maj7': [null, 3, 2, 0, 0, 0], '2min7': [null, null, 0, 2, 1, 1], '2sus4': [null, null, 0, 2, 3, 3],
+    '2maj7': [null, null, 0, 2, 2, 2], '5maj7': [null, null, 3, 2, 1, 0], '7maj7': [3, 2, 0, 0, 0, 2],
   };
   function shape(root, q) {
     if (OPEN[root + q]) return OPEN[root + q];
@@ -277,10 +315,12 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
     const E = {
       maj: [e, e + 2, e + 2, e + 1, e, e], min: [e, e + 2, e + 2, e, e, e],
       dom7: [e, e + 2, e, e + 1, e, e], dim: [e, e + 1, e + 2, e, null, null],
+      min7: [e, e + 2, e, e, e, e], maj7: [e, null, e + 1, e + 1, e, null], sus4: [e, e + 2, e + 2, e + 2, e, e],
     }[q];
     const A = {
       maj: [null, a, a + 2, a + 2, a + 2, a], min: [null, a, a + 2, a + 2, a + 1, a],
       dom7: [null, a, a + 2, a, a + 2, a], dim: [null, a, a + 1, a + 2, a + 1, null],
+      min7: [null, a, a + 2, a, a + 1, a], maj7: [null, a, a + 2, a + 1, a + 2, a], sus4: [null, a, a + 2, a + 2, a + 3, a],
     }[q];
     return a < e ? A : E;
   }
@@ -289,20 +329,23 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
   const MINOR_KEYS = [['A', 9, 0], ['E', 4, 0], ['H', 11, 0], ['Fis', 6, 0], ['Cis', 1, 0], ['Gis', 8, 0], ['Dis', 3, 0],
     ['B', 10, 1], ['F', 5, 1], ['C', 0, 1], ['G', 7, 1], ['D', 2, 1]];
   const DEG = {
-    Dur:  [[0, 'maj'], [2, 'min'], [4, 'min'], [5, 'maj'], [7, 'maj'], [9, 'min'], [11, 'dim'], [7, 'dom7']],
-    Moll: [[0, 'min'], [2, 'dim'], [3, 'maj'], [5, 'min'], [7, 'min'], [8, 'maj'], [10, 'maj'], [7, 'dom7']],
+    Dur:  [[0, 'maj'], [2, 'min'], [4, 'min'], [5, 'maj'], [7, 'maj'], [9, 'min'], [11, 'dim']],
+    Moll: [[0, 'min'], [2, 'dim'], [3, 'maj'], [5, 'min'], [7, 'min'], [8, 'maj'], [10, 'maj']],
   };
   const KEY_GROUPS = { Dur: [], Moll: [] };
+  const KEY_INFO = {};                                         // Tonart -> { root, flat, mode }
+  function chordName(r, q, key) {                              // Name in der Schreibweise der Tonart, Griff wird angelegt
+    const info = KEY_INFO[key] || { flat: 0 };
+    let nm = (info.flat ? FLAT : SHARP)[r];
+    if (r === 5 && (key === 'Fis-Dur' || key === 'Dis-Moll')) nm = 'Eis';   // richtig geschrieben statt F
+    const chord = nm + SUFFIX[q];
+    if (!CHORDS[chord]) CHORDS[chord] = shape(r, q);
+    return chord;
+  }
   [['Dur', MAJOR_KEYS], ['Moll', MINOR_KEYS]].forEach(([mode, list]) => list.forEach(([label, root, flat]) => {
-    const names = (flat ? FLAT : SHARP), key = label + '-' + mode;
-    KEYS[key] = DEG[mode].map(([iv, q]) => {
-      const r = (root + iv) % 12;
-      let nm = names[r];
-      if (r === 5 && (key === 'Fis-Dur' || key === 'Dis-Moll')) nm = 'Eis';   // richtig geschrieben statt F
-      const chord = nm + SUFFIX[q];
-      if (!CHORDS[chord]) CHORDS[chord] = shape(r, q);
-      return chord;
-    });
+    const key = label + '-' + mode;
+    KEY_INFO[key] = { root, flat, mode };
+    KEYS[key] = DEG[mode].map(([iv, q]) => chordName((root + iv) % 12, q, key));
     KEY_GROUPS[mode].push(key);
   }));
 
@@ -526,15 +569,25 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
     c.fillText('ANSCHLAGEN', L.neckEnd + L.zone / 2, L.bottom + 13);
   }
 
-  const keyChords = () => KEYS[S.key] || KEYS['A-Moll'];
-  const allStrips = () => {                                    // Akkorde der Tonart in der eigenen Reihenfolge
-    const base = keyChords(), ord = ((S.order && S.order[S.key]) || []).filter(c => base.includes(c));
-    return [...ord, ...base.filter(c => !ord.includes(c))];
-  };
-  const strips = () => {                                       // nur die eingeblendeten Akkorde der Tonart
-    const hide = (S.hidden && S.hidden[S.key]) || [], list = allStrips().filter(c => !hide.includes(c));
-    return list.length ? list : allStrips();
-  };
+  // Sieben Akkordplätze je Tonart: { r: Grundton 0–11, q: Akkordart, on: sichtbar }
+  const defaultSlots = key => { const k = KEY_INFO[key]; return DEG[k.mode].map(([iv, q]) => ({ r: (k.root + iv) % 12, q, on: true })); };
+  function slots() {
+    const key = KEYS[S.key] ? S.key : 'A-Moll';
+    S.slots = S.slots || {};
+    let sl = S.slots[key];
+    if (!Array.isArray(sl) || sl.length !== 7 || !sl.every(x => x && x.r >= 0 && x.r < 12 && SUFFIX[x.q] !== undefined)) {
+      sl = defaultSlots(key);                                  // alte Einstellungen (ausgeblendet/Reihenfolge) übernehmen
+      const names = KEYS[key], hide = (S.hidden && S.hidden[key]) || [], ord = ((S.order && S.order[key]) || []).filter(c => names.includes(c));
+      if (ord.length) { const by = n => sl[names.indexOf(n)]; sl = [...ord.map(by), ...names.filter(n => !ord.includes(n)).map(by)]; }
+      sl.forEach(x => { x.on = !hide.includes(chordName(x.r, x.q, key)); });
+      if (!sl.some(x => x.on)) sl.forEach(x => { x.on = true; });
+      if (S.hidden || S.order) S.slots[key] = sl;
+    }
+    return sl;
+  }
+  const slotName = x => chordName(x.r, x.q, S.key);
+  const allStrips = () => slots().map(slotName);
+  const strips = () => { const sl = slots().filter(x => x.on); return (sl.length ? sl : slots()).map(slotName); };
   function paintStrips() {
     const c = gb, n = strips().length, w = W / n; c.setTransform(DPR, 0, 0, DPR, 0, 0);
     c.fillStyle = '#2a1610'; c.fillRect(0, 0, W, H);
@@ -878,50 +931,84 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
   $('key').value = S.key;
   $('key').onchange = e => { if (P.on) stopAuto(); S.key = e.target.value; save(); layout(); renderChordPick(); wake(); };
 
-  /* Akkorde ein-/ausblenden (pro Tonart gespeichert) */
+  /* Akkordplätze bearbeiten (pro Tonart gespeichert): Akkord wählen, Reihenfolge, ein-/ausblenden */
+  function saveSlots(sl) { S.slots = S.slots || {}; S.slots[S.key] = sl; changedChords(); }
   function renderChordPick() {
-    const all = allStrips(), hide = (S.hidden && S.hidden[S.key]) || [];
+    const sl = slots().map(x => ({ ...x })), vis = sl.filter(x => x.on).length;
     $('cpList').innerHTML = '';
-    all.forEach((c, i) => {
-      const chip = document.createElement('div'); chip.className = 'cp-chip';
+    sl.forEach((x, i) => {
+      const name = slotName(x), chip = document.createElement('div'); chip.className = 'cp-chip' + (x.on ? '' : ' off');
       const mv = (txt, d, label) => {
-        const m = document.createElement('button'); m.className = 'cp-mv'; m.textContent = txt; m.setAttribute('aria-label', c + ' ' + label);
-        // Ziel: der nächste sichtbare Akkord in dieser Richtung (ausgeblendete werden übersprungen)
-        let j = i + d;
-        if (!hide.includes(c)) while (j >= 0 && j < all.length && hide.includes(all[j])) j += d;
-        m.disabled = j < 0 || j >= all.length;
-        m.onclick = () => {
-          const o = allStrips(); o.splice(i, 1); o.splice(j, 0, c);
-          S.order = S.order || {}; S.order[S.key] = o; changedChords();
-        };
+        const m = document.createElement('button'); m.className = 'cp-mv'; m.textContent = txt; m.setAttribute('aria-label', name + ' ' + label);
+        m.disabled = i + d < 0 || i + d >= sl.length;
+        m.onclick = () => { [sl[i], sl[i + d]] = [sl[i + d], sl[i]]; saveSlots(sl); };
         return m;
       };
-      const b = document.createElement('button'); b.className = 'cp-name'; b.textContent = c; b.setAttribute('aria-pressed', !hide.includes(c));
-      b.onclick = () => {
-        S.hidden = S.hidden || {}; let h = S.hidden[S.key] || [];
-        h = h.includes(c) ? h.filter(x => x !== c) : [...h, c];
-        if (h.length >= all.length) return;                    // mindestens ein Akkord bleibt
-        S.hidden[S.key] = h; changedChords();
-      };
-      chip.append(mv('‹', -1, 'nach links'), b, mv('›', 1, 'nach rechts'));
+      const b = document.createElement('button'); b.className = 'cp-name'; b.textContent = name;
+      b.title = 'Akkord für diesen Platz wählen'; b.onclick = () => openWheel(i);
+      const v = document.createElement('button'); v.className = 'cp-vis'; v.setAttribute('aria-pressed', x.on);
+      v.textContent = x.on ? 'sichtbar' : 'aus';
+      v.onclick = () => { if (x.on && vis <= 1) return; x.on = !x.on; saveSlots(sl); };   // mindestens einer bleibt
+      chip.append(mv('‹', -1, 'nach links'), b, mv('›', 1, 'nach rechts'), v);
       $('cpList').append(chip);
     });
-    $('cpReset').hidden = !(S.order && S.order[S.key]);
-    const n = strips().length;
-    $('cpInfo').textContent = S.key + ' – ' + n + (n === 1 ? ' Akkord' : ' Akkorde') + ' sichtbar';
-    const pop = ['C', 'Am', 'F', 'G'];
-    $('cpPop').hidden = !pop.every(c => all.includes(c));
+    $('cpInfo').textContent = S.key + ' · ' + vis + (vis === 1 ? ' Akkord' : ' Akkorde') + ' sichtbar · Akkord antippen zum Ändern';
+    const pop = ['C', 'Am', 'F', 'G'], names = sl.map(slotName);
+    $('cpPop').hidden = !pop.every(c => names.includes(c));
   }
   function changedChords() {
     if (P.on && !strips().includes(P.chord)) stopAuto();
     save(); renderChordPick(); layout(); wake();
   }
-  const showPick = on => { $('chordPick').hidden = !on; $('chordEdit').setAttribute('aria-expanded', on); $('chordEdit').setAttribute('aria-pressed', on); if (on) renderChordPick(); };
+  const showPick = on => {
+    $('chordPick').hidden = !on; $('chordEdit').setAttribute('aria-expanded', on); $('chordEdit').setAttribute('aria-pressed', on);
+    $('cpMain').hidden = false; $('cpEdit').hidden = true;
+    if (on) renderChordPick();
+  };
   $('chordEdit').onclick = () => showPick($('chordPick').hidden);
   $('cpDone').onclick = () => showPick(false);
-  $('cpReset').onclick = () => { if (S.order) delete S.order[S.key]; changedChords(); };
-  $('cpAll').onclick = () => { S.hidden = S.hidden || {}; delete S.hidden[S.key]; changedChords(); };
-  $('cpPop').onclick = () => { S.hidden = S.hidden || {}; S.hidden[S.key] = allStrips().filter(c => !['C', 'Am', 'F', 'G'].includes(c)); changedChords(); };
+  $('cpReset').onclick = () => { saveSlots(defaultSlots(KEYS[S.key] ? S.key : 'A-Moll')); };
+  $('cpAll').onclick = () => { saveSlots(slots().map(x => ({ ...x, on: true }))); };
+  $('cpPop').onclick = () => { saveSlots(slots().map(x => ({ ...x, on: ['C', 'Am', 'F', 'G'].includes(slotName(x)) }))); };
+
+  // Drehräder (wie in GarageBand): links der Grundton, rechts die Akkordart
+  const IH = 52;
+  function makeWheel(el, onChange) {
+    let items = [], timer = 0;
+    const cur = () => Math.max(0, Math.min(items.length - 1, Math.round(el.scrollTop / IH)));
+    const mark = i => el.querySelectorAll('.w-item').forEach((n, k) => n.classList.toggle('sel', k === i));
+    el.addEventListener('scroll', () => { mark(cur()); clearTimeout(timer); timer = setTimeout(() => onChange(cur()), 90); });
+    el.addEventListener('click', e => { const it = e.target.closest('.w-item'); if (it) el.scrollTo({ top: +it.dataset.i * IH, behavior: 'smooth' }); });
+    return {
+      fill(list) { items = list; el.innerHTML = '<div class="w-pad"></div>' + list.map((t, i) => `<div class="w-item" data-i="${i}">${t}</div>`).join('') + '<div class="w-pad"></div>'; },
+      set(i) { el.scrollTop = i * IH; mark(i); },
+      get: cur,
+    };
+  }
+  let editSlot = -1, editR = 0, editQ = 'maj';
+  const showEditName = () => { $('cwName').textContent = chordName(editR, editQ, S.key); };
+  const wRoot = makeWheel($('wRoot'), i => { editR = i; showEditName(); });
+  const wType = makeWheel($('wType'), i => { editQ = QUALS[i][0]; showEditName(); });
+  function openWheel(i) {
+    const x = slots()[i]; editSlot = i; editR = x.r; editQ = x.q;
+    const info = KEY_INFO[S.key] || { flat: 0 };
+    wRoot.fill((info.flat ? FLAT : SHARP).map((n, r) => (r === 5 && (S.key === 'Fis-Dur' || S.key === 'Dis-Moll')) ? 'Eis' : n));
+    wType.fill(QUALS.map(q => q[1]));
+    $('cpMain').hidden = true; $('cpEdit').hidden = false; $('cwSlot').textContent = i + 1;
+    requestAnimationFrame(() => { wRoot.set(editR); wType.set(QUALS.findIndex(q => q[0] === editQ)); });
+    showEditName();
+  }
+  $('cwBack').onclick = () => { $('cpEdit').hidden = true; $('cpMain').hidden = false; };
+  $('cwOk').onclick = () => {
+    editR = wRoot.get(); editQ = QUALS[wType.get()][0];
+    const sl = slots().map(x => ({ ...x })); sl[editSlot] = { ...sl[editSlot], r: editR, q: editQ };
+    $('cpEdit').hidden = true; $('cpMain').hidden = false; saveSlots(sl);
+  };
+  $('cwPlay').onclick = () => {
+    if (ctx.state !== 'running') ctx.resume();
+    const c = chordName(wRoot.get(), QUALS[wType.get()][0], S.key);
+    sounding(c).forEach((st, n) => pick(st, .85, n * .025, c));
+  };
   /* Drehregler: Position 0 = Aus, 1 … n = Muster. Tippen dreht eine Stufe weiter, Ziehen dreht frei. */
   const KNOBS = {
     kStrum: Object.keys(PATTERNS).filter(k => PATTERNS[k].kind === 'strum'),
