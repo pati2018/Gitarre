@@ -2381,7 +2381,7 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
         if (!banks[id || S.inst]) return;
         swDown[i] = true; swInst[i] = id; swRandMidi[i] = m;
         withInst(id, () => playKey(m, .85)); keyLit.set(m, performance.now() + 300);
-        const k = strips().findIndex(n => { const q = isNote(n) && parseChord(n); return q && 12 * (q.o + 1) + q.r === m; }); if (k >= 0) flash[k] = performance.now() + 260;
+        // Melodie: nur die eigene Säule des SW leuchtet (über swDown), keine anderen Felder
         wake(); return;
       }
       const chord = list[i]; if (!chord) return;
