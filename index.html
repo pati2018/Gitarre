@@ -464,13 +464,28 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
     blues: ['Blues', [0, 3, 5, 6, 7, 10]], moll: ['Natürlich Moll', [0, 2, 3, 5, 7, 8, 10]], dur: ['Dur', [0, 2, 4, 5, 7, 9, 11]],
   };
 
-  const S = { inst: 'steel', chord: 'Am', root: 9, scale: '', names: false, ring: true, reverb: true, verb: 3, headDwell: 500, headGain: 4.5, circle: false, flip: false, offset: 0, mode: 'fret', key: 'A-Moll', auto: '', bpm: 96 };
-  try { Object.assign(S, JSON.parse(localStorage.getItem('saitenzug') || '{}')); } catch (e) {}
+  const S = { inst: 'steel', chord: 'Am', root: 9, scale: '', names: false, ring: true, reverb: true, verb: 3, headDwell: 500, headGain: 4.5, circle: false, flip: false, offset: 0, mode: 'fret', key: 'C-Dur', auto: '', bpm: 96 };
+  let firstRun = true;
+  try { const saved = localStorage.getItem('saitenzug'); if (saved) { firstRun = false; Object.assign(S, JSON.parse(saved)); } } catch (e) {}
   S.names = false;
   // Familie: ?klavier oder ?gitarre im Link, sonst die zuletzt benutzte
+  const savedFamily = S.family === 'piano' ? 'piano' : 'guitar';
   { const q = location.search.toLowerCase(); if (q.includes('klavier') || q.includes('piano')) S.family = 'piano'; else if (q.includes('gitarre') || q.includes('guitar')) S.family = 'guitar'; }
   if (S.family !== 'piano') S.family = 'guitar';
   if (!S.kbOct) S.kbOct = 3;
+  // Ansicht je Instrument: Gitarre und Klavier merken sich Modus und Anordnung getrennt.
+  // Klavier startet beim ersten Mal mit Akkorden (C-Dur), Säulen, Einzeltönen und Boomwhacker-Farben.
+  const VIEW_KEYS = ['mode', 'circle', 'pillars', 'pillarTones', 'bw'];
+  const DEFAULT_VIEW = {
+    guitar: { mode: 'fret', circle: false, pillars: false, pillarTones: false, bw: false },
+    piano: { mode: 'smart', circle: false, pillars: true, pillarTones: true, bw: true },
+  };
+  S.view = S.view || {};
+  if (firstRun) { S.key = 'C-Dur'; Object.assign(S, DEFAULT_VIEW[S.family]); }
+  else if (savedFamily !== S.family) {                         // per Link (?klavier/?gitarre) zum anderen Instrument: dessen Ansicht holen
+    S.view[savedFamily] = Object.fromEntries(VIEW_KEYS.map(k => [k, S[k]]));
+    Object.assign(S, S.view[S.family] || DEFAULT_VIEW[S.family]);
+  }
   { const fam = id => (INSTRUMENTS.find(i => i.id === id) || {}).fam;
     if (fam(S.inst) !== S.family) S.inst = (S.family === 'piano' ? S.instP : S.instG) || (S.family === 'piano' ? 'piano' : 'steel');
     if (fam(S.inst) !== S.family) S.inst = S.family === 'piano' ? 'piano' : 'steel'; }
@@ -1569,9 +1584,11 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
     fingers.clear(); kvoices.forEach((v, m) => { kvoices.delete(m); try { v.src.stop(); } catch (e) {} });
     for (let s = 0; s < 6; s++) killVoice(s, .05);
     if (S.family === 'piano') S.instP = S.inst; else S.instG = S.inst;
+    S.view = S.view || {}; S.view[S.family] = Object.fromEntries(VIEW_KEYS.map(k => [k, S[k]]));      // Ansicht des alten Instruments merken
+    Object.assign(S, S.view[f] || DEFAULT_VIEW[f]);                                                  // Ansicht des neuen holen (beim ersten Mal: Standard)
     S.family = f;
     S.inst = (f === 'piano' ? S.instP : S.instG) || (f === 'piano' ? 'piano' : 'steel');
-    save(); renderInstruments(); applyMode(); layout();
+    save(); renderInstruments(); circleSync(); applyMode(); layout();
     boot();                                                    // neue Klänge im Hintergrund laden
     try { history.replaceState(null, '', location.pathname + (f === 'piano' ? '?klavier' : '?gitarre')); } catch (e) {}
   }
