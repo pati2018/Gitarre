@@ -57,6 +57,19 @@ button:focus-visible, select:focus-visible { outline: 3px solid var(--rose); out
 .label.sep { margin-left: 8px; }
 #rowSmart button { padding: 0 9px; }
 #rowSmart { gap: 8px; }
+/* Drehregler für die Autoplay-Muster (Aus, 1, 2, 3 …) */
+.knobwrap { display: flex; align-items: center; gap: 6px; flex: none; }
+.knob { width: 56px; height: 56px; flex: none; cursor: grab; touch-action: none; border-radius: 50%; }
+.knob:focus-visible { outline: 3px solid var(--rose); outline-offset: 2px; }
+.knob svg { width: 100%; height: 100%; display: block; overflow: visible; }
+.knob .dot { fill: var(--rose-soft); opacity: .5; }
+.knob .dot.on { fill: var(--amber); opacity: 1; stroke: var(--rose); stroke-width: 2; }
+.knob .body { fill: var(--rose); }
+.knob.off .body { fill: var(--rose-soft); }
+.knob .ptr { stroke: var(--amber); stroke-width: 6; stroke-linecap: round; }
+.knob.off .ptr { stroke: var(--pearl); opacity: .6; }
+.knob .val { fill: var(--pearl); font: 700 30px var(--font-plate); text-anchor: middle; dominant-baseline: central; }
+.knob.off .val { font-size: 20px; opacity: .8; }
 .pos { min-width: 62px; text-align: center; font-variant-numeric: tabular-nums; }
 
 .stage {
@@ -81,16 +94,6 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
 @media (max-height: 560px), (max-width: 600px) { .foot span { display: none; } .foot { padding-block: 3px; } }
 @media (max-height: 560px) { .badge { font-size: 26px; } }
 @media (prefers-reduced-motion: reduce) { #start { box-shadow: none; } }
-/* Autoplay-Muster: auf Tablets und Computern zwei Zeilen (Schlagen / Zupfen), auf dem Handy eine wischbare Zeile */
-@media (min-height: 600px) {
-  #autos { display: grid; grid-template-columns: auto auto auto; column-gap: 6px; row-gap: 6px; align-items: center; }
-  #a-off { grid-column: 1; grid-row: 1 / 3; align-self: stretch; height: auto; }
-  #autos > .label:nth-of-type(1) { grid-column: 2; grid-row: 1; }
-  #autoStrum { grid-column: 3; grid-row: 1; }
-  #autos > .label:nth-of-type(2) { grid-column: 2; grid-row: 2; }
-  #autoPick { grid-column: 3; grid-row: 2; }
-  #autos .label.sep { margin-left: 4px; }
-}
 @media (max-width: 1320px) { .plate .row { gap: 8px; } .plate button { padding: 0 9px; } .badge { padding-right: 0; } }
 @media (max-width: 1100px) { .plate .row { gap: 5px; } .plate .group { gap: 3px; } .plate button { padding: 0 7px; } .badge { font-size: 26px; } }
 /* Camera preview and recording */
@@ -130,7 +133,6 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
       <span class="spacer"></span>
       <div class="group" role="group" aria-label="Einstellungen">
         <button id="reverb" aria-pressed="true">Hall</button>
-        <button id="names" aria-pressed="false">Tonnamen</button>
         <button id="flip" aria-pressed="false">Spiegeln</button>
         <button id="camera" aria-pressed="false">Kamera</button>
         <button id="mic" aria-pressed="false" hidden>Mikro</button>
@@ -153,12 +155,9 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
     </div>
     <div class="row" id="rowSmart" hidden>
       <select id="key" aria-label="Tonart"></select>
-      <div class="group" id="autos" role="group" aria-label="Autoplay">
-        <button id="a-off" data-auto="" aria-label="Autoplay aus">Aus</button>
-        <span class="label sep">Schlagen</span>
-        <span class="group" id="autoStrum"></span>
-        <span class="label sep">Zupfen</span>
-        <span class="group" id="autoPick"></span>
+      <div class="group" id="autos" role="group" aria-label="Autoplay" style="gap:14px">
+        <div class="knobwrap"><div class="knob" id="kStrum" role="slider" tabindex="0" aria-label="Schlagmuster"></div><span class="label">Schlagen</span></div>
+        <div class="knobwrap"><div class="knob" id="kPick" role="slider" tabindex="0" aria-label="Zupfmuster"></div><span class="label">Zupfen</span></div>
       </div>
       <span class="spacer"></span>
       <div class="group" role="group" aria-label="Tempo">
@@ -249,6 +248,8 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
 
   const S = { inst: 'steel', chord: 'Am', root: 9, scale: '', names: false, ring: true, reverb: true, flip: false, offset: 0, mode: 'fret', key: 'A-Moll', auto: '', bpm: 96 };
   try { Object.assign(S, JSON.parse(localStorage.getItem('saitenzug') || '{}')); } catch (e) {}
+  S.names = false;
+  if (S.auto && !PATTERNS[S.auto]) S.auto = '';
   const save = () => { try { localStorage.setItem('saitenzug', JSON.stringify(S)); } catch (e) {} };
 
   const $ = id => document.getElementById(id);
@@ -769,7 +770,6 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
     b.onclick = () => { S[key] = !S[key]; b.setAttribute('aria-pressed', S[key]); save(); after && after(); wake(); };
   };
   toggle('ring', 'ring');
-  toggle('names', 'names');
   toggle('reverb', 'reverb', () => send.gain.setTargetAtTime(S.reverb ? .2 : 0, ctx.currentTime, .02));
   toggle('flip', 'flip', layout);
 
@@ -784,7 +784,7 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
     press($('modes'), $(smart ? 'm-smart' : 'm-fret'));
     $('hint').textContent = !smart ? HINTS.fret : S.auto ? HINTS.auto : HINTS.strip;
     $('bpmLabel').textContent = S.bpm + ' BPM';
-    press($('autos'), document.querySelector(`[data-auto="${S.auto}"]`));
+    renderKnobs();
   }
   function setMode(m) {
     if (P.on) stopAuto();
@@ -796,17 +796,68 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
   Object.keys(KEYS).forEach(k => $('key').add(new Option(k, k)));
   $('key').value = S.key;
   $('key').onchange = e => { if (P.on) stopAuto(); S.key = e.target.value; save(); wake(); };
-  Object.keys(PATTERNS).forEach(k => {
-    const b = document.createElement('button'); b.textContent = PATTERNS[k].name; b.dataset.auto = k; b.id = 'a-' + k;
-    $(PATTERNS[k].kind === 'strum' ? 'autoStrum' : 'autoPick').append(b);
-  });
-  $('autos').addEventListener('click', e => {
-    const b = e.target.closest('[data-auto]'); if (!b) return;
-    S.auto = b.dataset.auto;
+  /* Drehregler: Position 0 = Aus, 1 … n = Muster. Tippen dreht eine Stufe weiter, Ziehen dreht frei. */
+  const KNOBS = {
+    kStrum: Object.keys(PATTERNS).filter(k => PATTERNS[k].kind === 'strum'),
+    kPick: Object.keys(PATTERNS).filter(k => PATTERNS[k].kind === 'pick'),
+  };
+  const SWEEP = 270, START = -135;                               // degrees, 0 = up
+  const knobAngle = (i, n) => START + SWEEP * i / n;
+  const polar = (deg, r) => { const a = (deg - 90) * Math.PI / 180; return [50 + r * Math.cos(a), 50 + r * Math.sin(a)]; };
+  function knobPos(id) { const i = KNOBS[id].indexOf(S.auto); return i < 0 ? 0 : i + 1; }
+  function setKnob(id, pos) {
+    const list = KNOBS[id], n = list.length;
+    pos = Math.max(0, Math.min(n, pos));
+    const was = S.auto, now = pos ? list[pos - 1] : (list.includes(S.auto) ? '' : S.auto);
+    if (now === was) { renderKnobs(); return; }
+    S.auto = now;
     if (!S.auto && P.on) stopAuto();
     if (P.on) P.step = 0;
     save(); applyMode(); wake();
+  }
+  function renderKnobs() {
+    Object.keys(KNOBS).forEach(id => {
+      const el = $(id), n = KNOBS[id].length, pos = knobPos(id);
+      let dots = '';
+      for (let i = 0; i <= n; i++) {
+        const [x, y] = polar(knobAngle(i, n), 46);
+        dots += `<circle class="dot${i === pos ? ' on' : ''}" cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${i === 0 ? 4.5 : 6}"/>`;
+      }
+      const [x1, y1] = polar(knobAngle(pos, n), 22), [x2, y2] = polar(knobAngle(pos, n), 33);
+      el.innerHTML = `<svg viewBox="0 0 100 100" aria-hidden="true">${dots}<circle class="body" cx="50" cy="50" r="36"/>` +
+        `<line class="ptr" x1="${x1.toFixed(1)}" y1="${y1.toFixed(1)}" x2="${x2.toFixed(1)}" y2="${y2.toFixed(1)}"/>` +
+        `<text class="val" x="50" y="52">${pos || 'Aus'}</text></svg>`;
+      el.classList.toggle('off', !pos);
+      el.setAttribute('aria-valuemin', 0); el.setAttribute('aria-valuemax', n); el.setAttribute('aria-valuenow', pos);
+      el.setAttribute('aria-valuetext', pos ? 'Muster ' + pos : 'Aus');
+    });
+  }
+  Object.keys(KNOBS).forEach(id => {
+    const el = $(id); let drag = null;
+    const posFromPointer = e => {
+      const r = el.getBoundingClientRect(), n = KNOBS[id].length;
+      let deg = Math.atan2(e.clientX - (r.left + r.width / 2), -(e.clientY - (r.top + r.height / 2))) * 180 / Math.PI;
+      deg = Math.max(START, Math.min(START + SWEEP, deg));
+      return Math.round((deg - START) / SWEEP * n);
+    };
+    el.addEventListener('pointerdown', e => { drag = { x: e.clientX, y: e.clientY, moved: false }; el.setPointerCapture(e.pointerId); e.preventDefault(); });
+    el.addEventListener('pointermove', e => {
+      if (!drag) return;
+      if (!drag.moved && Math.hypot(e.clientX - drag.x, e.clientY - drag.y) > 8) drag.moved = true;
+      if (drag.moved) setKnob(id, posFromPointer(e));
+    });
+    const end = () => {
+      if (drag && !drag.moved) { const n = KNOBS[id].length; setKnob(id, (knobPos(id) + 1) % (n + 1)); }
+      drag = null;
+    };
+    el.addEventListener('pointerup', end);
+    el.addEventListener('pointercancel', () => { drag = null; });
+    el.addEventListener('keydown', e => {
+      const d = { ArrowRight: 1, ArrowUp: 1, ArrowLeft: -1, ArrowDown: -1 }[e.key];
+      if (d) { e.preventDefault(); setKnob(id, knobPos(id) + d); }
+    });
   });
+  renderKnobs();
   const tempo = d => { S.bpm = Math.max(50, Math.min(180, S.bpm + d)); save(); $('bpmLabel').textContent = S.bpm + ' BPM'; };
   $('bpmDown').onclick = () => tempo(-4);
   $('bpmUp').onclick = () => tempo(4);
