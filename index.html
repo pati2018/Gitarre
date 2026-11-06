@@ -165,6 +165,10 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
 #toneEdit[aria-pressed="true"] { background: var(--amber); color: var(--rose); border-color: var(--rose); }
 #headBtn[aria-pressed="true"] { background: var(--amber); color: var(--rose); border-color: var(--rose); }
 .presets { right: 10px; left: auto; width: min(560px, calc(100% - 20px)); max-height: calc(100% - 20px); overflow-y: auto; }
+.melbar { position: absolute; z-index: 22; top: 10px; left: 50%; transform: translateX(-50%); width: min(760px, calc(100% - 20px)); background: var(--foam); color: var(--rose); border: 2px solid #c0392b; border-radius: 10px; padding: 10px 12px; box-shadow: 0 8px 30px rgba(0,0,0,.45); display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between; }
+.melbar strong { color: #c0392b; font-size: 18px; }
+.mel-notes { font-size: 15px; color: var(--rose-soft); }
+.sw-grid .sw-mel[aria-pressed="true"] { background: var(--rose); color: var(--pearl); }
 .sw-grid { display: flex; flex-direction: column; gap: 8px; }
 .sw-grid label { display: flex; align-items: center; gap: 12px; font-size: 18px; }
 .sw-grid label b { min-width: 42px; }
@@ -297,11 +301,15 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
       <div class="cp-info" id="psInfo"></div>
     </div>
     <div class="chordpick presets" id="swPick" role="dialog" aria-label="SoundWhacker-Klänge" hidden>
-      <div class="cp-head"><strong>🔔 SoundWhacker-Klänge</strong><span class="cp-info">Jeder SoundWhacker kann ein eigenes Instrument spielen – Akkord bzw. Ton bleibt der seines Feldes.</span></div>
+      <div class="cp-head"><strong>🔔 SoundWhacker-Klänge</strong><span class="cp-info">Jeder SoundWhacker kann ein eigenes Instrument spielen – Akkord bzw. Ton bleibt der seines Feldes. Mit 🎵 Melodie spielt er stattdessen bei jedem Druck den nächsten Ton einer eingespielten Melodie.</span></div>
       <div class="sw-grid" id="swGrid"></div>
       <div class="cp-acts"><button id="swRand" aria-pressed="false" title="Jeder Druck spielt einen zufälligen Ton der eingestellten Skala">🎲 Zufall: aus</button></div>
       <div class="cp-info" id="swInfo"></div>
       <div class="cp-acts"><button id="swReset">Alle wie oben</button><button class="go" id="swDone">Fertig</button></div>
+    </div>
+    <div class="melbar" id="melBar" role="dialog" aria-label="Melodie aufnehmen" hidden>
+      <div><strong id="melTitle"></strong><div class="mel-notes" id="melNotes"></div></div>
+      <div class="cp-acts"><button id="melUndo">↶ Letzten Ton löschen</button><button id="melCancel">✕ Abbrechen</button><button class="go" id="melOk">✓ Speichern</button></div>
     </div>
     <video id="cam" playsinline muted autoplay hidden></video>
     <div class="headprev" id="headPrev" hidden><video id="headVid" playsinline muted></video></div>
@@ -1145,7 +1153,7 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
     if (piano()) {                                             // Klaviertastatur
       const k = keyAt(p.x, p.y); if (!k) return;
       fingers.set(e.pointerId, { type: 'key', midi: k.midi });
-      playKey(k.midi, k.vel); wake(); return;
+      playKey(k.midi, k.vel); if (melRec) melAdd(k.midi); wake(); return;
     }
     if (p.x >= L.neckEnd) {
       const s = stringAt(p.y);
@@ -1198,7 +1206,7 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
     }
     if (f.type === 'key') {                                    // über die Tasten wischen = Glissando
       const k = keyAt(p.x, p.y);
-      if (k && k.midi !== f.midi) { const old = f.midi; keyLit.set(old, performance.now() + 120); f.midi = k.midi; if (![...fingers.values()].some(o => o.type === 'key' && o.midi === old)) releaseKey(old); playKey(k.midi, .7); wake(); }
+      if (k && k.midi !== f.midi) { const old = f.midi; keyLit.set(old, performance.now() + 120); f.midi = k.midi; if (![...fingers.values()].some(o => o.type === 'key' && o.midi === old)) releaseKey(old); playKey(k.midi, .7); if (melRec) melAdd(k.midi); wake(); }
       return;
     }
     if (f.type === 'pick' && f.pband && pillarsOn()) {          // Säulen-Töne: über die Bänder wischen, seitlich in die nächste Säule
@@ -2244,6 +2252,37 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
     if (!banks[id]) { loadBank(id).catch(() => {}); return null; }
     return id;
   }
+  // 🎵 Melodien je SW: auf der Klaviertastatur einspielen, dann spielt jeder SW-Druck den nächsten Ton (am Ende wieder von vorn)
+  const swMelPos = [0, 0, 0, 0, 0];
+  let melRec = null;                                          // { i, notes, mode, family }
+  const swMel = i => ((S.swMel || [])[i] || []).filter(Number.isFinite);
+  const midiName = m => noteName(((m % 12) + 12) % 12, Math.floor(m / 12) - 1, S.key);
+  function melBar() {
+    const b = $('melBar'); b.hidden = !melRec; if (!melRec) return;
+    const n = melRec.notes;
+    $('melTitle').textContent = '● Melodie für SW' + (melRec.i + 1) + ': ' + n.length + (n.length === 1 ? ' Ton' : ' Töne');
+    $('melNotes').textContent = n.length ? n.slice(-14).map(midiName).join(' · ') + (n.length > 14 ? ' …' : '') : 'Jetzt auf der Tastatur die Melodie spielen – Ton für Ton.';
+    $('melUndo').disabled = !n.length; $('melOk').disabled = !n.length;
+  }
+  function melAdd(m) { if (melRec.notes.length < 400) melRec.notes.push(m); melBar(); }
+  function melStart(i) {
+    swShow(false);
+    melRec = { i, notes: [], mode: S.mode, family: S.family };
+    if (S.family !== 'piano') setFamily('piano');
+    if (S.mode !== 'fret') setMode('fret');
+    melBar();
+  }
+  function melEnd(keep) {
+    if (!melRec) return;
+    const r = melRec; melRec = null; melBar();
+    if (keep && r.notes.length) { S.swMel = (S.swMel || []).slice(0, 5); while (S.swMel.length < 5) S.swMel.push([]); S.swMel[r.i] = r.notes; swMelPos[r.i] = 0; save(); toast('Melodie mit ' + r.notes.length + ' Tönen auf SW' + (r.i + 1) + ' gespeichert.'); }
+    if (r.family !== S.family) setFamily(r.family);
+    if (r.mode !== S.mode) setMode(r.mode);
+    layout(); wake(); swShow(true);
+  }
+  $('melUndo').onclick = () => { if (melRec) { melRec.notes.pop(); melBar(); } };
+  $('melOk').onclick = () => melEnd(true);
+  $('melCancel').onclick = () => melEnd(false);
   // 🎲 Zufall: jeder SW-Druck spielt einen zufälligen Ton der eingestellten Skala (Felder mit Einzeltönen),
   // sonst der Tonleiter der Tonart (Oktave 4) – mit dem Instrument des SW, klingt solange gehalten
   const swRandMidi = [null, null, null, null, null];
@@ -2262,7 +2301,7 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
     if (pickd[1] >= 0) flash[pickd[1]] = performance.now() + 260;
     playKey(pickd[0], .85);
   }
-  function swName(i) { const id = ((S.swInst || {})[S.family] || [])[i]; const it = id && !isDrums() && id !== S.inst && INSTRUMENTS.find(x => x.id === id && !x.drums); return 'SW' + (i + 1) + (S.swRandom && !isDrums() ? ' 🎲' : '') + (it ? ' · ' + it.name : ''); }
+  function swName(i) { const id = ((S.swInst || {})[S.family] || [])[i]; const it = id && !isDrums() && id !== S.inst && INSTRUMENTS.find(x => x.id === id && !x.drums); return 'SW' + (i + 1) + (swMel(i).length ? ' 🎵' : S.swRandom && !isDrums() ? ' 🎲' : '') + (it ? ' · ' + it.name : ''); }
   // Fenster „SW-Klänge“: je SoundWhacker ein Instrument wählen
   function swShow(on) {
     $('swPick').hidden = !on; $('swBtn').setAttribute('aria-expanded', on);
@@ -2291,7 +2330,14 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
           loadBank(sel.value).catch(() => toast('Klang konnte nicht geladen werden – Internet nötig beim ersten Mal.')).finally(() => { o.text = label; });
         }
       };
-      row.append(sel); g.append(row);
+      const mel = swMel(i), mb = document.createElement('button'), mx = document.createElement('button');
+      mb.className = 'sw-mel'; mb.textContent = mel.length ? '🎵 ' + mel.length + ' Töne' : '🎵 Melodie';
+      mb.title = mel.length ? 'Neue Melodie für SW' + (i + 1) + ' einspielen' : 'Melodie für SW' + (i + 1) + ' auf der Klaviertastatur einspielen';
+      mb.setAttribute('aria-pressed', mel.length > 0);
+      mb.onclick = e => { e.preventDefault(); melStart(i); };
+      mx.textContent = '✕'; mx.title = 'Melodie von SW' + (i + 1) + ' löschen'; mx.hidden = !mel.length;
+      mx.onclick = e => { e.preventDefault(); if (!confirm('Melodie von SW' + (i + 1) + ' löschen?')) return; S.swMel[i] = []; save(); layout(); wake(); swShow(true); };
+      row.append(sel, mb, mx); g.append(row);
     }
     $('swInfo').textContent = isDrums() ? 'Beim Schlagzeug spielen alle SW das Schlagzeug.' : S.swRandom ? 'Zufall an: Jeder Druck spielt einen zufälligen Ton ' + (swPool()[0][1] >= 0 ? 'der Skala in den Feldern' : 'der Tonleiter ' + S.key) + ' – mit dem Instrument des SW.' : '';
     $('swRand').textContent = '🎲 Zufall: ' + (S.swRandom ? 'an' : 'aus'); $('swRand').setAttribute('aria-pressed', !!S.swRandom);
@@ -2317,6 +2363,17 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
     const i = id - 1, list = strips();
     if (on) {
       if (swDown[i]) return;
+      if (melRec) return;                                      // während der Aufnahme: SW stumm
+      const mel = swMel(i);
+      if (mel.length) {                                        // 🎵 Melodie: jeder Druck = nächster Ton
+        unlockAudio(); if (ctx.state !== 'running') ctx.resume();
+        const id = swInstFor(i), m = mel[swMelPos[i] % mel.length]; swMelPos[i] = (swMelPos[i] + 1) % mel.length;
+        if (!banks[id || S.inst]) return;
+        swDown[i] = true; swInst[i] = id; swRandMidi[i] = m;
+        withInst(id, () => playKey(m, .85)); keyLit.set(m, performance.now() + 300);
+        const k = strips().findIndex(n => { const q = isNote(n) && parseChord(n); return q && 12 * (q.o + 1) + q.r === m; }); if (k >= 0) flash[k] = performance.now() + 260;
+        wake(); return;
+      }
       const chord = list[i]; if (!chord) return;
       unlockAudio(); if (!banks[S.inst]) return;               // Klänge noch nicht da
       if (ctx.state !== 'running') ctx.resume();
