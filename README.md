@@ -1,10 +1,12 @@
 # Saitenzug
 
-Eine Gitarre im Browser: Griffbrett- und Akkordmodus, mehrere Instrumente, Autoplay mit Schlag- und Zupfmustern.
+Eine Gitarre und ein Smart-Klavier im Browser: Griffbrett bzw. Tastatur und Akkordmodus, mehrere Instrumente, Autoplay mit Schlag-, Zupf- und Arpeggio-Mustern.
+
+Smart-Klavier direkt öffnen: https://pati2018.github.io/Gitarre/?klavier
 
 Live: https://pati2018.github.io/Gitarre/
 
-Klänge: Fluid R3 GM SoundFont von Frank Wen, CC BY 3.0.
+Klänge: Fluid R3 GM SoundFont von Frank Wen, CC BY 3.0 (Gitarren und – mit FluidSynth gerendert – Klavier und E-Piano).
 
 Offline: Beim ersten Öffnen speichert sich die App auf dem Gerät (Service Worker `sw.js`) und startet danach auch ohne Internet. Auf iPad/iPhone in Safari „Teilen“ → „Zum Home-Bildschirm“ für ein eigenes App-Symbol im Vollbild.
 
