@@ -2318,7 +2318,7 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
     if (pickd[1] >= 0) flash[pickd[1]] = performance.now() + 260;
     playKey(pickd[0], .85);
   }
-  function swName(i) { const id = ((S.swInst || {})[S.family] || [])[i]; const it = id && !isDrums() && id !== S.inst && INSTRUMENTS.find(x => x.id === id && !x.drums); return 'SW' + (i + 1) + (swMel(i).length ? ' 🎵' : S.swRandom && !isDrums() ? ' 🎲' : '') + (it ? ' · ' + it.name : ''); }
+  function swName(i) { const v = ((S.swInst || {})[S.family] || [])[i] || '', dm = /^drums:(\d+)$/.exec(v); if (dm && DRUMS[+dm[1]]) return 'SW' + (i + 1) + ' 🥁 ' + DRUMS[+dm[1]]; const id = v; const it = id && !isDrums() && id !== S.inst && INSTRUMENTS.find(x => x.id === id && !x.drums); return 'SW' + (i + 1) + (swMel(i).length ? ' 🎵' : S.swRandom && !isDrums() ? ' 🎲' : '') + (it ? ' · ' + it.name : ''); }
   // Fenster „SW-Klänge“: je SoundWhacker ein Instrument wählen
   function swShow(on) {
     $('swPick').hidden = !on; $('swBtn').setAttribute('aria-expanded', on);
@@ -2335,16 +2335,21 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
         INSTRUMENTS.filter(x => x.fam === fam && !x.drums).forEach(x => og.append(new Option(x.name, x.id)));
         sel.append(og);
       });
+      const dg = document.createElement('optgroup'); dg.label = '🥁 Schlagzeug';
+      [36, 38, 40, 37, 39, 42, 44, 46, 49, 57, 51, 53, 55, 52, 41, 43, 45, 47, 48, 50, 54, 56, 58, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 35]
+        .forEach(m => dg.append(new Option('Schlagzeug: ' + DRUMS[m], 'drums:' + m)));
+      sel.append(dg);
       const list = ((S.swInst || {})[S.family] || []);
       sel.value = list[i] && list[i] !== S.inst ? list[i] : '';
-      sel.disabled = isDrums();
+      sel.disabled = false;
       sel.onchange = () => {
         S.swInst = S.swInst || {}; const a = (S.swInst[S.family] || ['', '', '', '', '']).slice(0, 5);
         while (a.length < 5) a.push('');
         a[i] = sel.value; S.swInst[S.family] = a; save(); layout(); wake();
-        if (sel.value && !banks[sel.value]) {
+        const bid = sel.value.split(':')[0];
+        if (bid && !banks[bid]) {
           const o = sel.options[sel.selectedIndex], label = o.text; o.text = label + ' – lädt …';
-          loadBank(sel.value).catch(() => toast('Klang konnte nicht geladen werden – Internet nötig beim ersten Mal.')).finally(() => { o.text = label; });
+          loadBank(bid).catch(() => toast('Klang konnte nicht geladen werden – Internet nötig beim ersten Mal.')).finally(() => { o.text = label; });
         }
       };
       const mel = swMel(i), mb = document.createElement('button'), mx = document.createElement('button');
@@ -2356,7 +2361,7 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
       mx.onclick = e => { e.preventDefault(); if (!confirm('Melodie von SW' + (i + 1) + ' löschen?')) return; S.swMel[i] = []; save(); layout(); wake(); swShow(true); };
       row.append(sel, mb, mx); g.append(row);
     }
-    $('swInfo').textContent = isDrums() ? 'Beim Schlagzeug spielen alle SW das Schlagzeug.' : S.swRandom ? 'Zufall an: Jeder Druck spielt einen zufälligen Ton ' + (swPool(-1)[0][1] >= 0 ? 'der Skala in den Feldern' : 'des Akkords im Feld des SW') + ' – mit dem Instrument des SW.' : '';
+    $('swInfo').textContent = isDrums() ? 'Oben ist Schlagzeug gewählt: SW ohne eigenen Schlagzeug-Klang spielen ihr Feld.' : S.swRandom ? 'Zufall an: Jeder Druck spielt einen zufälligen Ton ' + (swPool(-1)[0][1] >= 0 ? 'der Skala in den Feldern' : 'des Akkords im Feld des SW') + ' – mit dem Instrument des SW.' : '';
     $('swRand').textContent = '🎲 Zufall: ' + (S.swRandom ? 'an' : 'aus'); $('swRand').setAttribute('aria-pressed', !!S.swRandom);
   }
   $('swRand').onclick = () => { S.swRandom = !S.swRandom; save(); layout(); wake(); swShow(true); };
@@ -2364,7 +2369,15 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
   $('swDone').onclick = () => swShow(false);
   $('swReset').onclick = () => { if (S.swInst) delete S.swInst[S.family]; save(); layout(); wake(); swShow(true); };
   // zugewiesene SW-Klänge im Hintergrund vorladen
-  function swPreload() { if (isDrums()) return; (((S.swInst || {})[S.family]) || []).forEach(id => { if (id && INSTRUMENTS.some(x => x.id === id)) loadBank(id).catch(() => {}); }); }
+  function swPreload() { (((S.swInst || {})[S.family]) || []).forEach(v => { const id = (v || '').split(':')[0]; if (id && (id === 'drums' || !isDrums()) && INSTRUMENTS.some(x => x.id === id)) loadBank(id).catch(() => {}); }); }
+  // 🥁 Schlagzeug-Klang je SW: Wert „drums:38“ = Snare usw. – spielt bei jedem Druck genau diesen Klang
+  function swDrumFor(i) {
+    const v = ((S.swInst || {})[S.family] || [])[i] || '', m = /^drums:(\d+)$/.exec(v);
+    if (!m || !DRUMS[+m[1]]) return null;
+    if (!banks.drums) { loadBank('drums').catch(() => {}); return null; }
+    return +m[1];
+  }
+  const swDrum = [false, false, false, false, false];
   setTimeout(swPreload, 1500);
   const swId = e => { const m = /^(Digit|Numpad)([1-5])$/.exec(e.code || ''); return m ? +m[2] : 0; };
   const typingIn = el => el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable);
@@ -2381,6 +2394,12 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
     if (on) {
       if (swDown[i]) return;
       if (melRec) return;                                      // während der Aufnahme: SW stumm
+      const dm = swDrumFor(i);
+      if (dm) {                                                // 🥁 fester Schlagzeug-Klang
+        unlockAudio(); if (ctx.state !== 'running') ctx.resume();
+        swDown[i] = true; swDrum[i] = true;
+        withInst('drums', () => playKey(dm, .9)); wake(); return;
+      }
       const mel = swMel(i);
       if (mel.length) {                                        // 🎵 Melodie: jeder Druck = nächster Ton
         unlockAudio(); if (ctx.state !== 'running') ctx.resume();
@@ -2405,6 +2424,7 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
       if (!swDown[i]) return;
       swDown[i] = false;
       const chord = swChord[i], id = swInst[i]; swChord[i] = null; swInst[i] = null;
+      if (swDrum[i]) { swDrum[i] = false; swInst[i] = null; wake(); return; }   // Schlagzeug klingt von selbst aus
       if (swRandMidi[i] !== null) { const m = swRandMidi[i]; swRandMidi[i] = null; if (!swRandMidi.includes(m)) withInst(id, () => releaseKey(m, true)); wake(); return; }
       // SoundWhacker: nur solange gehalten wird klingt es – loslassen = Akkord, Ton und Arpeggio sofort aus (auch mit Pedal)
       const held = swDown.map((d, k) => d ? swChord[k] : null).filter(Boolean);
