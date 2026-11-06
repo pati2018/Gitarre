@@ -1,4 +1,4 @@
-# Saitenzug
+# Smart Instruments (Gitarre & Smart-Klavier)
 
 Eine Gitarre und ein Smart-Klavier im Browser: Griffbrett bzw. Tastatur und Akkordmodus, mehrere Instrumente, Autoplay mit Schlag-, Zupf- und Arpeggio-Mustern.
 
