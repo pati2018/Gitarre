@@ -186,7 +186,7 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
 <div class="app">
   <div class="plate">
     <div class="row">
-      <h1 class="badge" id="badge">Saitenzug</h1>
+      <h1 class="badge" id="badge" hidden>Saitenzug</h1>
       <div class="group" id="family" role="group" aria-label="Instrument wählen">
         <button id="f-guitar" title="Gitarre">🎸</button>
         <button id="f-piano" title="Smart-Klavier">🎹</button>
@@ -874,6 +874,7 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
   function releaseStrings(list, chord) { list.forEach(s => { if (voices[s] && (!chord || pickChord[s] === chord)) killVoice(s, inst().hold ? .06 : .09); }); }
   let toneEdit = false;
   const toneEditOn = () => toneEdit && piano() && !isDrums() && !S.circle;
+  const gap = () => piano() ? .002 : .012;                    // Klavier: Akkord fast gleichzeitig, Gitarre: kurzer Anschlag
   const autoOn = () => !!S.auto && !inst().noAuto && !(piano() && PATTERNS[S.auto] && PATTERNS[S.auto].kind === 'strum');   // Klavier: nur Arpeggio            // Melodie-Instrumente und Schlagzeug: ohne Rhythmus/Arpeggio
   // Klavier: pro Akkordplatz wählbar, welche der 6 Töne erklingen (mask)
   let previewMask = null;
@@ -952,7 +953,7 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
       if (i < 0) return;
       const chord = list[i]; lastChord = chord;
       if (autoOn()) { startAuto(chord); fingers.set(e.pointerId, { type: 'hold', chord, ss: [], i, glide: 'circle', auto: true }); wake(); return; }
-      flash[i] = e.timeStamp + 160; sounding(chord).forEach((s, n) => pick(s, .85, n * .012, chord)); wake();
+      flash[i] = e.timeStamp + 160; sounding(chord).forEach((s, n) => pick(s, .85, n * gap(), chord)); wake();
       fingers.set(e.pointerId, { type: 'hold', chord, ss: sounding(chord), i, glide: 'circle' });
       return;
     }
@@ -974,7 +975,7 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
       lastChord = chord;
       if (autoOn()) { startAuto(chord); fingers.set(e.pointerId, { type: 'hold', chord, ss: [], i, glide: 'strip', auto: true }); wake(); return; }
       flash[i] = e.timeStamp + 160;
-      if (p.y < L.head || (piano() && isNote(chord))) { sounding(chord).forEach((s, n) => pick(s, .85, n * .012, chord)); fingers.set(e.pointerId, { type: 'hold', chord, ss: sounding(chord), i, glide: 'strip' }); return; }
+      if (p.y < L.head || (piano() && isNote(chord))) { sounding(chord).forEach((s, n) => pick(s, .85, n * gap(), chord)); fingers.set(e.pointerId, { type: 'hold', chord, ss: sounding(chord), i, glide: 'strip' }); return; }
       const s = stringAt(p.y);
       fingers.set(e.pointerId, { type: 'pick', chord, y: p.y, last: s, time: e.timeStamp, played: new Set([s]), col: i });
       pick(s, .8, 0, chord);
@@ -1027,7 +1028,7 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
         else {
           if (releaseOnUp()) releaseStrings(f.ss, old);
           flash[j] = e.timeStamp + 160; f.ss = sounding(chord);
-          f.ss.forEach((st, n) => pick(st, .85, n * .012, chord));
+          f.ss.forEach((st, n) => pick(st, .85, n * gap(), chord));
         }
         wake();
       }
@@ -1048,7 +1049,7 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
           else {
             if (releaseOnUp() && f.played) releaseStrings([...f.played], old);
             flash[j] = e.timeStamp + 160;
-            const ss = sounding(chord); ss.forEach((st, n) => pick(st, .85, n * .012, chord));
+            const ss = sounding(chord); ss.forEach((st, n) => pick(st, .85, n * gap(), chord));
             if (f.played) ss.forEach(st => f.played.add(st));
           }
           f.y = p.y; f.last = stringAt(p.y); f.time = e.timeStamp; wake();
@@ -1195,8 +1196,7 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
       midi = m;
     }
     KB.keys = keys; KB.last = midi; KB.kw = kw;
-    const c = gb; c.setTransform(DPR, 0, 0, DPR, 0, 0);
-    c.fillStyle = '#141217'; c.fillRect(0, 0, W, H);
+    paintKeyboard();
   }
   function keyAt(x, y) {
     const hit = KB.keys.filter(k => k.black).find(k => x >= k.x && x <= k.x + k.w && y >= k.y && y <= k.y + k.h)
@@ -1204,35 +1204,47 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
     if (!hit) return null;
     return { midi: hit.midi, vel: Math.max(.45, Math.min(1, .45 + .55 * (y - hit.y) / hit.h)) };   // weiter unten = lauter
   }
+  // Tastatur: der ruhende Teil wird einmal ins Hintergrundbild gemalt, pro Bild nur die gedrückten Tasten (schont das iPad)
+  function paintKey(c, k, lit) {
+    const scale = SCALES[S.scale] ? SCALES[S.scale][1] : [], inScale = scale.length && scale.includes(((k.midi - S.root) % 12 + 12) % 12);
+    const gr = c.createLinearGradient(0, k.y, 0, k.y + k.h);
+    if (!k.black) {
+      gr.addColorStop(0, lit ? '#f7c56c' : '#fbf8f0'); gr.addColorStop(1, lit ? '#f0a83a' : '#e6dfcf');
+      c.fillStyle = gr; c.beginPath(); if (c.roundRect) c.roundRect(k.x + 1.5, k.y, k.w - 3, k.h, [0, 0, 7, 7]); else c.rect(k.x + 1.5, k.y, k.w - 3, k.h); c.fill();
+      if (inScale) { c.fillStyle = (k.midi - S.root) % 12 === 0 ? '#2a1610' : 'rgba(42,22,16,.45)'; c.beginPath(); c.arc(k.x + k.w / 2, k.y + k.h - 46, Math.min(9, k.w * .18), 0, 7); c.fill(); }
+      if (isDrums() && DRUMS[k.midi]) {
+        c.fillStyle = '#4a3a32'; c.font = `600 ${Math.max(10, Math.min(14, k.w * .2))}px "Barlow Condensed", "Arial Narrow", sans-serif`;
+        DRUMS[k.midi].split(' ').forEach((t, li, arr) => c.fillText(t, k.x + k.w / 2, k.y + k.h - 70 - (arr.length - 1 - li) * 15));
+      }
+      if (k.midi % 12 === 0) { c.fillStyle = '#6b5a50'; c.font = `600 ${Math.max(12, Math.min(18, k.w * .3))}px "Barlow Condensed", "Arial Narrow", sans-serif`; c.fillText('C' + (k.midi / 12 - 1), k.x + k.w / 2, k.y + k.h - 20); }
+    } else {
+      gr.addColorStop(0, lit ? '#f0a83a' : '#2b2730'); gr.addColorStop(1, lit ? '#c9862a' : '#0d0c10');
+      c.fillStyle = gr; c.beginPath(); if (c.roundRect) c.roundRect(k.x, k.y, k.w, k.h, [0, 0, 5, 5]); else c.rect(k.x, k.y, k.w, k.h); c.fill();
+      if (isDrums() && DRUMS[k.midi]) {
+        c.save(); c.translate(k.x + k.w / 2, k.y + k.h * .45); c.rotate(-Math.PI / 2);
+        c.fillStyle = 'rgba(243,239,228,.8)'; c.font = `600 ${Math.max(10, Math.min(13, k.w * .38))}px "Barlow Condensed", "Arial Narrow", sans-serif`;
+        c.fillText(DRUMS[k.midi], 0, 0); c.restore();
+      }
+      if (inScale) { c.fillStyle = (k.midi - S.root) % 12 === 0 ? '#f0a83a' : 'rgba(240,168,58,.6)'; c.beginPath(); c.arc(k.x + k.w / 2, k.y + k.h - 18, Math.min(7, k.w * .2), 0, 7); c.fill(); }
+    }
+  }
+  function paintKeyboard() {
+    const c = gb; c.setTransform(DPR, 0, 0, DPR, 0, 0);
+    c.fillStyle = '#141217'; c.fillRect(0, 0, W, H);
+    c.textAlign = 'center'; c.textBaseline = 'middle';
+    KB.keys.forEach(k => { if (!k.black) paintKey(c, k, false); });
+    KB.keys.forEach(k => { if (k.black) paintKey(c, k, false); });
+  }
   function drawKeyboard() {
-    const scale = SCALES[S.scale] ? SCALES[S.scale][1] : [], down = new Set([...fingers.values()].filter(f => f.type === 'key').map(f => f.midi));
-    const now = performance.now(), lit = m => down.has(m) || (keyLit.get(m) || 0) > now;   // gelb nur, solange die Taste gedrückt ist (kurz nachleuchten)
-    const inScale = m => scale.length && scale.includes(((m - S.root) % 12 + 12) % 12);
+    const now = performance.now(), down = new Set();
+    fingers.forEach(f => { if (f.type === 'key') down.add(f.midi); });
+    keyLit.forEach((t, m) => { if (t > now) down.add(m); else keyLit.delete(m); });
+    if (!down.size) return;
     g.textAlign = 'center'; g.textBaseline = 'middle';
-    KB.keys.forEach(k => {
-      if (k.black) return;
-      const gr = g.createLinearGradient(0, k.y, 0, k.y + k.h);
-      gr.addColorStop(0, lit(k.midi) ? '#f7c56c' : '#fbf8f0'); gr.addColorStop(1, lit(k.midi) ? '#f0a83a' : '#e6dfcf');
-      g.fillStyle = gr; g.beginPath(); if (g.roundRect) g.roundRect(k.x + 1.5, k.y, k.w - 3, k.h, [0, 0, 7, 7]); else g.rect(k.x + 1.5, k.y, k.w - 3, k.h); g.fill();
-      if (inScale(k.midi)) { g.fillStyle = (k.midi - S.root) % 12 === 0 ? '#2a1610' : 'rgba(42,22,16,.45)'; g.beginPath(); g.arc(k.x + k.w / 2, k.y + k.h - 46, Math.min(9, k.w * .18), 0, 7); g.fill(); }
-      if (isDrums() && DRUMS[k.midi]) {
-        g.fillStyle = '#4a3a32'; g.font = `600 ${Math.max(10, Math.min(14, k.w * .2))}px "Barlow Condensed", "Arial Narrow", sans-serif`;
-        DRUMS[k.midi].split(' ').forEach((t, li, arr) => g.fillText(t, k.x + k.w / 2, k.y + k.h - 70 - (arr.length - 1 - li) * 15));
-      }
-      if (k.midi % 12 === 0) { g.fillStyle = '#6b5a50'; g.font = `600 ${Math.max(12, Math.min(18, k.w * .3))}px "Barlow Condensed", "Arial Narrow", sans-serif`; g.fillText('C' + (k.midi / 12 - 1), k.x + k.w / 2, k.y + k.h - 20); }
-    });
-    KB.keys.forEach(k => {
-      if (!k.black) return;
-      const gr = g.createLinearGradient(0, k.y, 0, k.y + k.h);
-      gr.addColorStop(0, lit(k.midi) ? '#f0a83a' : '#2b2730'); gr.addColorStop(1, lit(k.midi) ? '#c9862a' : '#0d0c10');
-      g.fillStyle = gr; g.beginPath(); if (g.roundRect) g.roundRect(k.x, k.y, k.w, k.h, [0, 0, 5, 5]); else g.rect(k.x, k.y, k.w, k.h); g.fill();
-      if (isDrums() && DRUMS[k.midi]) {
-        g.save(); g.translate(k.x + k.w / 2, k.y + k.h * .45); g.rotate(-Math.PI / 2);
-        g.fillStyle = 'rgba(243,239,228,.8)'; g.font = `600 ${Math.max(10, Math.min(13, k.w * .38))}px "Barlow Condensed", "Arial Narrow", sans-serif`;
-        g.fillText(DRUMS[k.midi], 0, 0); g.restore();
-      }
-      if (inScale(k.midi)) { g.fillStyle = (k.midi - S.root) % 12 === 0 ? '#f0a83a' : 'rgba(240,168,58,.6)'; g.beginPath(); g.arc(k.x + k.w / 2, k.y + k.h - 18, Math.min(7, k.w * .2), 0, 7); g.fill(); }
-    });
+    const whites = KB.keys.filter(k => !k.black && down.has(k.midi));
+    whites.forEach(k => paintKey(g, k, true));
+    // schwarze Tasten über gedrückten weißen neu zeichnen, dann die gedrückten schwarzen
+    KB.keys.forEach(k => { if (k.black && (down.has(k.midi) || whites.some(w => k.x < w.x + w.w && k.x + k.w > w.x))) paintKey(g, k, down.has(k.midi)); });
   }
   // eigene Stimmen pro Taste (vielstimmig), Pedal = „Ausklingen“
   const kvoices = new Map();
@@ -1327,8 +1339,8 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
   NOTE.forEach((n, i) => { const o = new Option(n, i); $('root').add(o); });
   Object.keys(SCALES).forEach(k => $('scale').add(new Option(SCALES[k][0], k)));
   $('root').value = S.root; $('scale').value = S.scale;
-  $('root').onchange = e => { S.root = +e.target.value; save(); wake(); };
-  $('scale').onchange = e => { S.scale = e.target.value; save(); wake(); };
+  $('root').onchange = e => { S.root = +e.target.value; save(); if (piano()) layout(); wake(); };
+  $('scale').onchange = e => { S.scale = e.target.value; save(); if (piano()) layout(); wake(); };
 
   const toggle = (id, key, after) => {
     const b = $(id); b.setAttribute('aria-pressed', S[key]);
@@ -1643,6 +1655,10 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
     audioUnlocked = true;
     try { const b = ctx.createBufferSource(); b.buffer = ctx.createBuffer(1, 1, 22050); b.connect(ctx.destination); b.start(0); } catch (e) {}   // iPad
     if (navigator.wakeLock) navigator.wakeLock.request('screen').catch(() => {});
+    try {                                                      // unhörbarer Dauerton: iPad lässt den Audioausgang nicht einschlafen -> keine Verzögerung nach Pausen
+      const keep = ctx.createConstantSource ? ctx.createConstantSource() : ctx.createOscillator(), z = ctx.createGain();
+      z.gain.value = 0.00001; keep.connect(z); z.connect(ctx.destination); keep.start();
+    } catch (e) {}
   }
   ['pointerdown', 'touchend', 'click', 'keydown'].forEach(ev => document.addEventListener(ev, unlockAudio, { capture: true, passive: true }));
   $('start').onclick = () => boot();
@@ -2004,7 +2020,7 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
       if (ctx.state !== 'running') ctx.resume();
       swDown[i] = true; swChord[i] = chord; lastChord = chord;
       if (autoOn()) startAuto(chord);
-      else { flash[i] = performance.now() + 160; sounding(chord).forEach((st, n) => pick(st, .85, n * .012, chord)); }
+      else { flash[i] = performance.now() + 160; sounding(chord).forEach((st, n) => pick(st, .85, n * gap(), chord)); }
     } else {
       if (!swDown[i]) return;
       swDown[i] = false;
