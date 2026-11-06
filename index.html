@@ -239,7 +239,7 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
       <div id="cpMain">
         <div class="cp-head"><strong id="cpTitle">Akkorde</strong><span class="cp-info" id="cpInfo"></span></div>
         <div class="cp-list" id="cpList"></div>
-        <div class="cp-acts"><button id="cpAll">Alle zeigen</button><button id="cpPop">C · Am · F · G</button><button id="cpReset">↺ Leitereigene Akkorde</button><button id="cpScale" title="Alle 7 Plätze mit den Tönen der Tonleiter belegen (Oktave 4)">♪ Tonleiter-Töne</button><button class="go" id="cpDone">Fertig</button></div>
+        <div class="cp-acts"><button id="cpAll">Alle zeigen</button><button id="cpReset">↺ Leitereigene Akkorde</button><button id="cpScale" title="Alle 7 Plätze mit den Tönen der Tonleiter belegen (Oktave 4)">♪ Tonleiter-Töne</button><button class="go" id="cpDone">Fertig</button></div>
       </div>
       <div id="cpEdit" hidden>
         <div class="cp-head"><strong>Platz <span id="cwSlot"></span>:</strong><span class="cw-name" id="cwName"></span></div>
@@ -1276,8 +1276,6 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
       $('cpList').append(chip);
     });
     $('cpInfo').textContent = S.key + ' · ' + vis + (vis === 1 ? ' Akkord' : ' Akkorde') + ' sichtbar · antippen = ändern · festhalten und ziehen = verschieben';
-    const pop = ['C', 'Am', 'F', 'G'], names = sl.map(slotName);
-    $('cpPop').hidden = !pop.every(c => names.includes(c));
     $('cpScale').hidden = !piano();
   }
   // Akkord festhalten und an eine andere Stelle ziehen (Finger oder Maus)
@@ -1346,7 +1344,6 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
     saveSlots(DEG[k.mode].map(([iv]) => { const m = 60 + k.root + iv; return { r: m % 12, q: 'note', o: Math.floor(m / 12) - 1, on: true }; }));
   };
   $('cpAll').onclick = () => { saveSlots(slots().map(x => ({ ...x, on: true }))); };
-  $('cpPop').onclick = () => { saveSlots(slots().map(x => ({ ...x, on: ['C', 'Am', 'F', 'G'].includes(slotName(x)) }))); };
 
   // Drehräder (wie in GarageBand): links der Grundton, rechts die Akkordart
   const IH = 52;
