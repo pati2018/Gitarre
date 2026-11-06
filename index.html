@@ -149,6 +149,10 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
 .cp-chip .cp-mv:disabled { visibility: hidden; }
 .cp-acts { display: flex; gap: 6px; flex-wrap: wrap; }
 .cp-acts .go { background: var(--rose); color: var(--pearl); margin-left: auto; }
+.headprev { position: absolute; z-index: 15; left: 10px; bottom: 10px; width: 150px; aspect-ratio: 4 / 3; border: 2px solid var(--amber); border-radius: 10px; overflow: hidden; background: #000; pointer-events: none; }
+.headprev video { width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); display: block; }
+.headstat { position: absolute; z-index: 16; left: 50%; bottom: 18px; transform: translateX(-50%); background: rgba(42,22,16,.9); color: var(--pearl); padding: 8px 14px; border-radius: 8px; font-size: 17px; pointer-events: none; white-space: nowrap; }
+#headBtn[aria-pressed="true"] { background: var(--amber); color: var(--rose); border-color: var(--rose); }
 .stage.cam { background: #000; }
 .stage.cam canvas { position: relative; opacity: var(--see, .5); }
 .saved {
@@ -203,6 +207,12 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
     <div class="row" id="rowSmart" hidden>
       <select id="key" aria-label="Tonart"></select>
       <button id="chordEdit" aria-expanded="false" title="Akkorde ein- oder ausblenden">✎ Akkorde</button>
+      <button id="headBtn" aria-pressed="false" title="Kopfsteuerung: die Nase führt einen Zeiger über die Akkorde">👃 Kopf</button>
+      <span class="group" id="headOpts" hidden>
+        <button id="headCenter" title="Jetzige Kopfhaltung als Mitte nehmen">⌖ Mitte</button>
+        <select id="headDwell" aria-label="Verweilen" title="So lange muss der Zeiger auf einem Akkord bleiben"><option value="0">sofort</option><option value="250">0,25 s</option><option value="500">0,5 s</option><option value="1000">1 s</option><option value="1500">1,5 s</option><option value="2000">2 s</option></select>
+        <select id="headGain" aria-label="Bewegung" title="Wie weit der Kopf sich bewegen muss"><option value="3">groß</option><option value="4.5">mittel</option><option value="6.5">klein</option></select>
+      </span>
       <div class="group" id="autos" role="group" aria-label="Autoplay" style="gap:14px">
         <div class="knobwrap"><div class="knob" id="kStrum" role="slider" tabindex="0" aria-label="Schlagmuster"></div><span class="label">Schlagen</span></div>
         <div class="knobwrap"><div class="knob" id="kPick" role="slider" tabindex="0" aria-label="Zupfmuster"></div><span class="label">Zupfen</span></div>
@@ -232,6 +242,8 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
       </div>
     </div>
     <video id="cam" playsinline muted autoplay hidden></video>
+    <div class="headprev" id="headPrev" hidden><video id="headVid" playsinline muted></video></div>
+    <div class="headstat" id="headStat" hidden></div>
     <canvas id="neck" aria-label="Griffbrett mit sechs Saiten. Tippen spielt einen Ton, Ziehen verändert die Tonhöhe."></canvas>
         <div class="toast" id="toast" role="status" hidden></div>
     <div class="saved" id="saved" role="dialog" aria-label="Aufnahme speichern" hidden>
@@ -358,7 +370,7 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
     blues: ['Blues', [0, 3, 5, 6, 7, 10]], moll: ['Natürlich Moll', [0, 2, 3, 5, 7, 8, 10]], dur: ['Dur', [0, 2, 4, 5, 7, 9, 11]],
   };
 
-  const S = { inst: 'steel', chord: 'Am', root: 9, scale: '', names: false, ring: true, reverb: true, verb: 3, flip: false, offset: 0, mode: 'fret', key: 'A-Moll', auto: '', bpm: 96 };
+  const S = { inst: 'steel', chord: 'Am', root: 9, scale: '', names: false, ring: true, reverb: true, verb: 3, headDwell: 500, headGain: 4.5, flip: false, offset: 0, mode: 'fret', key: 'A-Moll', auto: '', bpm: 96 };
   try { Object.assign(S, JSON.parse(localStorage.getItem('saitenzug') || '{}')); } catch (e) {}
   S.names = false;
   if (S.reverb === false && S.verbSet !== true) S.verb = 0;
@@ -589,6 +601,7 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
     }
     return sl;
   }
+  const HEAD = { on: false, seen: false, idx: -1, px: .5, prog: 0 };   // Kopfsteuerung (unten)
   const slotName = x => chordName(x.r, x.q, S.key);
   const allStrips = () => slots().map(slotName);
   const strips = () => { const sl = slots().filter(x => x.on); return (sl.length ? sl : slots()).map(slotName); };
@@ -632,6 +645,17 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
         }
       }
     });
+    if (HEAD.on && HEAD.seen) {   // Kopfsteuerung: Zeiger und Verweil-Fortschritt
+      const i = HEAD.idx, px = HEAD.px * W, y = L.head + Math.min(60, (H - L.head) * .18);
+      if (i >= 0 && i < list.length) {
+        g.strokeStyle = '#f0a83a'; g.lineWidth = 4; g.strokeRect(i * w + 3, 3, w - 6, H - 6);
+        if (HEAD.prog < 1) { g.fillStyle = 'rgba(240,168,58,.85)'; g.fillRect(i * w + 6, L.head - 9, (w - 12) * HEAD.prog, 5); }
+      }
+      g.fillStyle = 'rgba(243,239,228,.18)'; g.beginPath(); g.arc(px, y, 22, 0, 7); g.fill();
+      g.strokeStyle = '#f0a83a'; g.lineWidth = 5;
+      g.beginPath(); g.arc(px, y, 22, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * HEAD.prog); g.stroke();
+      g.fillStyle = '#f0a83a'; g.beginPath(); g.arc(px, y, 6, 0, 7); g.fill();
+    }
     if (P.on) {   // beat lights on the playing strip
       const i = list.indexOf(P.chord), pat = PATTERNS[S.auto];
       if (i >= 0 && pat) {
@@ -790,7 +814,7 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
       wobble[s] = wobble[s] < .01 ? 0 : wobble[s] * (voices[s] ? .975 : .9);
       if (wobble[s]) busy = true;
     }
-    if (S.mode === 'smart') { drawStrips(ts); if (P.on || flash.some(f => f > ts)) busy = true; }
+    if (S.mode === 'smart') { drawStrips(ts); if (P.on || HEAD.on || flash.some(f => f > ts)) busy = true; }
     else { markers(); fingerDots(); }
     if (busy) wake();
   }
@@ -922,7 +946,7 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
   function setMode(m) {
     if (P.on) stopAuto();
     fingers.clear();
-    S.mode = m; save(); applyMode(); layout(); showPick(false);
+    S.mode = m; save(); applyMode(); layout(); showPick(false); if (m !== 'smart' && HEAD.on) headStop();
   }
   $('m-fret').onclick = () => setMode('fret');
   $('m-smart').onclick = () => setMode('smart');
@@ -1376,7 +1400,101 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
   }
   boot();
 
-  window.__saitenzug = { ctx, voices, fingers, S, banks, P, KEYS, CHORDS, recType };
+  /* ---------- Kopfsteuerung (wie das Klang-Pad in MIGA) ----------
+     Die Nasenspitze führt einen Zeiger über die Akkordfelder. Bleibt er lange genug auf einem Feld,
+     erklingt der Akkord (mit Autoplay: das Muster wechselt auf diesen Akkord). Läuft alles auf dem Gerät. */
+  const headStat = msg => { $('headStat').textContent = msg; $('headStat').hidden = !msg; };
+  let mp = null;
+  async function headStart() {
+    if (HEAD.on) return;
+    HEAD.on = true; HEAD.seen = false; HEAD.cx = null; HEAD.idx = -1; HEAD.fired = -1;
+    $('headBtn').setAttribute('aria-pressed', 'true'); $('headOpts').hidden = false;
+    if (ctx.state !== 'running') ctx.resume();
+    try {
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) throw new Error('Dieser Browser gibt die Kamera nicht frei');
+      if (!camStream) {                                        // eigene Kamera (kleines Vorschaubild unten links)
+        headStat('Kamera wird gestartet …');
+        const gum = navigator.mediaDevices.getUserMedia({ video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: 'user' }, audio: false });
+        const stream = await Promise.race([gum, new Promise((_, no) => setTimeout(() => no(new Error('Kamera antwortet nicht – in den Einstellungen (Safari → Kamera) erlauben und neu laden')), 10000))]);
+        if (!HEAD.on) { stream.getTracks().forEach(t => t.stop()); return; }
+        HEAD.stream = stream;
+        const v = $('headVid'); v.srcObject = stream; $('headPrev').hidden = false;
+        try { await Promise.race([v.play(), new Promise(r => setTimeout(r, 3000))]); } catch (e) {}
+        for (let k = 0; k < 30 && HEAD.on && v.readyState < 2; k++) await new Promise(r => setTimeout(r, 100));
+        if (v.readyState < 2) { headStat('Einmal auf den Bildschirm tippen, um die Kamera zu starten'); const tap = () => v.play().catch(() => {}); document.addEventListener('pointerdown', tap, { once: true, capture: true }); }
+      }
+      if (!mp) {
+        headStat('Gesichtserkennung wird geladen …');
+        const vision = await import('./vendor/mediapipe/vision_bundle.mjs');
+        const fs = await vision.FilesetResolver.forVisionTasks(new URL('vendor/mediapipe/wasm', location.href).href);
+        const opts = d => ({ baseOptions: { modelAssetPath: new URL('models/face_landmarker.task', location.href).href, delegate: d }, runningMode: 'VIDEO', numFaces: 1 });
+        try { mp = await vision.FaceLandmarker.createFromOptions(fs, opts('GPU')); } catch (e) { mp = await vision.FaceLandmarker.createFromOptions(fs, opts('CPU')); }
+      }
+      if (!HEAD.on) return;
+      headStat('Gerade auf den Bildschirm schauen …');
+      HEAD.loop = requestAnimationFrame(headLoop);
+    } catch (e) {
+      const m = { NotAllowedError: 'Kamera nicht erlaubt', NotFoundError: 'Keine Kamera gefunden', NotReadableError: 'Kamera wird von einer anderen App benutzt' };
+      headStop(); headStat(m[e && e.name] || ('Kopfsteuerung startet nicht: ' + ((e && e.message) || e)));
+      setTimeout(() => { if (!HEAD.on) headStat(''); }, 5000);
+    }
+  }
+  function headStop() {
+    HEAD.on = false; HEAD.seen = false; cancelAnimationFrame(HEAD.loop);
+    if (HEAD.stream) { HEAD.stream.getTracks().forEach(t => t.stop()); HEAD.stream = null; }
+    $('headVid').srcObject = null; $('headPrev').hidden = true; headStat('');
+    $('headBtn').setAttribute('aria-pressed', 'false'); $('headOpts').hidden = true; wake();
+  }
+  function headLoop() {
+    if (!HEAD.on) return;
+    HEAD.loop = requestAnimationFrame(headLoop);
+    // Bildquelle: läuft die große Kamera (Knopf „Kamera“), wird sie mitbenutzt
+    const v = camStream && cam.readyState >= 2 ? cam : $('headVid');
+    if (!v || v.readyState < 2 || v.currentTime === HEAD.lastT) return;
+    HEAD.lastT = v.currentTime;
+    let r; try { r = mp.detectForVideo(v, performance.now()); } catch (e) { return; }
+    const lm = r && r.faceLandmarks && r.faceLandmarks[0], now = performance.now();
+    if (!lm) {
+      if (!HEAD.lost) HEAD.lost = now;
+      if (now - HEAD.lost > 600) { HEAD.seen = false; HEAD.idx = -1; headStat('Kein Gesicht erkannt'); wake(); }
+      return;
+    }
+    HEAD.lost = 0;
+    const nx = lm[1].x, gain = +S.headGain || 4.5;            // Nasenspitze
+    if (HEAD.cx == null) { HEAD.cx = nx; HEAD.px = .5; }
+    if (!HEAD.seen) headStat('');
+    HEAD.seen = true;
+    // Kamerabild ist ungespiegelt: Kopf nach rechts drehen = Zeiger nach rechts
+    const tx = Math.min(1, Math.max(0, .5 + (HEAD.cx - nx) * gain));
+    HEAD.px += (tx - HEAD.px) * .35;
+    const list = strips(), n = list.length;
+    let i = Math.max(0, Math.min(n - 1, Math.floor(HEAD.px * n)));
+    if (HEAD.idx >= 0 && HEAD.idx < n && i !== HEAD.idx) {    // etwas Spielraum am Rand, damit es nicht flackert
+      const edge = HEAD.px * n - HEAD.idx;
+      if (edge > -.12 && edge < 1.12) i = HEAD.idx;
+    }
+    if (i !== HEAD.idx) { HEAD.idx = i; HEAD.since = now; HEAD.fired = -1; }
+    const dwell = +S.headDwell || 0, chord = list[i];
+    const playing = P.on ? (P.next || P.chord) : null;
+    if (HEAD.fired === i && (!P.on || playing === chord)) HEAD.prog = 1;
+    else {
+      HEAD.prog = dwell > 0 ? Math.min(1, (now - HEAD.since) / dwell) : 1;
+      if (HEAD.prog >= 1) {
+        HEAD.fired = i; lastChord = chord; flash[i] = now + 160;
+        if (S.auto) { if (!P.on || playing !== chord) startAuto(chord); }
+        else sounding(chord).forEach((st, k) => pick(st, .85, k * .012, chord));
+      }
+    }
+    wake();
+  }
+  ['headDwell', 'headGain'].forEach(id => {
+    const el = $(id); el.value = String(S[id]); if (el.value !== String(S[id])) el.selectedIndex = id === 'headDwell' ? 2 : 1;
+    el.onchange = () => { S[id] = +el.value; save(); };
+  });
+  $('headBtn').onclick = () => (HEAD.on ? headStop() : headStart());
+  $('headCenter').onclick = () => { HEAD.cx = null; };
+
+  window.__saitenzug = { ctx, voices, fingers, S, banks, P, KEYS, CHORDS, recType, HEAD };
 })();
 </script>
 

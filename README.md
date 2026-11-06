@@ -9,3 +9,5 @@ Klänge: Fluid R3 GM SoundFont von Frank Wen, CC BY 3.0.
 Offline: Beim ersten Öffnen speichert sich die App auf dem Gerät (Service Worker `sw.js`) und startet danach auch ohne Internet. Auf iPad/iPhone in Safari „Teilen“ → „Zum Home-Bildschirm“ für ein eigenes App-Symbol im Vollbild.
 
 Schriften (im Ordner `fonts/`): Barlow Condensed (SIL Open Font License 1.1), Yellowtail (Apache License 2.0).
+
+Kopfsteuerung (Modus „Akkorde“, Knopf „👃 Kopf“): Die Nase führt über die Kamera einen Zeiger über die Akkordfelder. Gesichtserkennung mit Google MediaPipe Tasks Vision 0.10.14 (`vendor/mediapipe/`) und dem Modell `models/face_landmarker.task` (float16/1), beide Apache-2.0 (`licenses/Apache-2.0.txt`). Alles läuft auf dem Gerät, kein Bild verlässt es.
