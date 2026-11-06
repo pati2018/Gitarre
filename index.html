@@ -207,6 +207,7 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
     <div class="row" id="rowSmart" hidden>
       <select id="key" aria-label="Tonart"></select>
       <button id="chordEdit" aria-expanded="false" title="Akkorde ein- oder ausblenden">✎ Akkorde</button>
+      <button id="circleBtn" aria-pressed="false" title="Akkorde im Kreis anordnen – gut für die Kopfsteuerung">◯ Kreis</button>
       <button id="headBtn" aria-pressed="false" title="Kopfsteuerung: die Nase führt einen Zeiger über die Akkorde">👃 Kopf</button>
       <span class="group" id="headOpts" hidden>
         <button id="headCenter" title="Jetzige Kopfhaltung als Mitte nehmen">⌖ Mitte</button>
@@ -370,7 +371,7 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
     blues: ['Blues', [0, 3, 5, 6, 7, 10]], moll: ['Natürlich Moll', [0, 2, 3, 5, 7, 8, 10]], dur: ['Dur', [0, 2, 4, 5, 7, 9, 11]],
   };
 
-  const S = { inst: 'steel', chord: 'Am', root: 9, scale: '', names: false, ring: true, reverb: true, verb: 3, headDwell: 500, headGain: 4.5, flip: false, offset: 0, mode: 'fret', key: 'A-Moll', auto: '', bpm: 96 };
+  const S = { inst: 'steel', chord: 'Am', root: 9, scale: '', names: false, ring: true, reverb: true, verb: 3, headDwell: 500, headGain: 4.5, circle: false, flip: false, offset: 0, mode: 'fret', key: 'A-Moll', auto: '', bpm: 96 };
   try { Object.assign(S, JSON.parse(localStorage.getItem('saitenzug') || '{}')); } catch (e) {}
   S.names = false;
   if (S.reverb === false && S.verbSet !== true) S.verb = 0;
@@ -601,7 +602,30 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
     }
     return sl;
   }
-  const HEAD = { on: false, seen: false, idx: -1, px: .5, prog: 0 };   // Kopfsteuerung (unten)
+  const HEAD = { on: false, seen: false, idx: -1, px: .5, py: .5, prog: 0 };   // Kopfsteuerung (unten)
+  // Kreis-Anordnung: Akkorde rund um eine Mitte, der erste oben (12 Uhr), dann im Uhrzeigersinn
+  const circleOn = () => S.mode === 'smart' && S.circle;
+  function circleGeo() {
+    const n = strips().length, cx = W / 2, cy = H / 2, m = Math.min(W, H);
+    // Felder so groß wie möglich, ohne sich zu überlappen (Abstand zweier Nachbarn = 2·R·sin(π/n))
+    const k = n > 1 ? .9 * Math.sin(Math.PI / n) : 1;
+    const pr = Math.max(30, Math.min(m * .2, k * (m / 2 - 12) / (1 + k)));
+    const R = n > 1 ? Math.max(pr * 1.3, m / 2 - pr - 12) : 0, dead = Math.max(28, Math.min(R - pr * .55, R * .45));
+    const pads = Array.from({ length: n }, (_, i) => { const a = -Math.PI / 2 + i * 2 * Math.PI / n; return { a, x: cx + R * Math.cos(a), y: cy + R * Math.sin(a) }; });
+    return { n, cx, cy, R, pr, dead, pads };
+  }
+  function circleSector(x, y, G, keep) {                     // Richtung ab der Mitte -> Akkord (Mitte = keiner)
+    const dx = x - G.cx, dy = y - G.cy;
+    if (Math.hypot(dx, dy) < G.dead) return -1;
+    const step = 2 * Math.PI / G.n;
+    let a = Math.atan2(dy, dx) + Math.PI / 2; a = (a % (2 * Math.PI) + 2 * Math.PI) % (2 * Math.PI);
+    let i = Math.round(a / step) % G.n;
+    if (keep >= 0 && keep < G.n && i !== keep) {             // etwas Spielraum an den Grenzen
+      let d = Math.abs(a - keep * step); d = Math.min(d, 2 * Math.PI - d);
+      if (d < step * .62) i = keep;
+    }
+    return i;
+  }
   const slotName = x => chordName(x.r, x.q, S.key);
   const allStrips = () => slots().map(slotName);
   const strips = () => { const sl = slots().filter(x => x.on); return (sl.length ? sl : slots()).map(slotName); };
@@ -615,6 +639,13 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
       c.lineWidth = .6 + rnd() * 1.3;
       c.beginPath(); c.moveTo(x, y); c.lineTo(x + len, y + rnd() * 3 - 1.5); c.stroke();
     }
+    if (circleOn()) {
+      const G = circleGeo();
+      c.strokeStyle = 'rgba(243,239,228,.12)'; c.lineWidth = 2;
+      c.beginPath(); c.arc(G.cx, G.cy, G.R, 0, 7); c.stroke();
+      c.setLineDash([6, 8]); c.beginPath(); c.arc(G.cx, G.cy, G.dead, 0, 7); c.stroke(); c.setLineDash([]);
+      return;
+    }
     c.fillStyle = '#1b0e0a'; c.fillRect(0, 0, W, L.head);
     c.fillStyle = '#efe7d3'; c.fillRect(0, L.head - 3, W, 3);
     for (let i = 1; i < n; i++) {
@@ -623,7 +654,38 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
       c.fillStyle = fg; c.fillRect(x - 1.8, 0, 3.6, H);
     }
   }
+  function drawCircle(ts) {
+    const list = strips(), G = circleGeo();
+    g.textAlign = 'center'; g.textBaseline = 'middle';
+    list.forEach((name, i) => {
+      const p = G.pads[i], on = P.on && P.chord === name, wait = P.on && P.next === name, fl = flash[i] > ts;
+      g.fillStyle = on ? '#f0a83a' : fl ? '#5a3424' : '#1b0e0a';
+      g.beginPath(); g.arc(p.x, p.y, G.pr, 0, 7); g.fill();
+      g.lineWidth = 3; g.strokeStyle = on ? '#2a1610' : 'rgba(243,239,228,.55)'; g.stroke();
+      if (wait) { g.strokeStyle = '#f0a83a'; g.lineWidth = 4; g.beginPath(); g.arc(p.x, p.y, G.pr + 6, 0, 7); g.stroke(); }
+      g.fillStyle = on ? '#2a1610' : '#f3efe4';
+      g.font = `600 ${Math.round(Math.min(G.pr * .62, 44))}px "Barlow Condensed", "Arial Narrow", sans-serif`;
+      g.fillText(name, p.x, p.y);
+      if (on && PATTERNS[S.auto]) {                           // Taktpunkte unter dem Namen
+        const pat = PATTERNS[S.auto], beats = pat.len / 4, cur = Math.floor(((P.step + pat.len - 1) % pat.len) / 4);
+        for (let b = 0; b < beats; b++) { g.fillStyle = b === cur ? '#2a1610' : 'rgba(42,22,16,.3)'; g.beginPath(); g.arc(p.x + (b - (beats - 1) / 2) * 11, p.y + G.pr * .52, 3.2, 0, 7); g.fill(); }
+      }
+    });
+    if (HEAD.on && HEAD.seen) {
+      const i = HEAD.idx;
+      if (i >= 0 && i < list.length) {
+        const p = G.pads[i];
+        g.strokeStyle = 'rgba(240,168,58,.35)'; g.lineWidth = 8; g.beginPath(); g.arc(p.x, p.y, G.pr + 10, 0, 7); g.stroke();
+        g.strokeStyle = '#f0a83a'; g.beginPath(); g.arc(p.x, p.y, G.pr + 10, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * HEAD.prog); g.stroke();
+      }
+      const hx = HEAD.hx, hy = HEAD.hy;
+      g.strokeStyle = 'rgba(240,168,58,.5)'; g.lineWidth = 2; g.beginPath(); g.moveTo(G.cx, G.cy); g.lineTo(hx, hy); g.stroke();
+      g.fillStyle = 'rgba(243,239,228,.18)'; g.beginPath(); g.arc(hx, hy, 18, 0, 7); g.fill();
+      g.fillStyle = '#f0a83a'; g.beginPath(); g.arc(hx, hy, 7, 0, 7); g.fill();
+    }
+  }
   function drawStrips(ts) {
+    if (circleOn()) return drawCircle(ts);
     const list = strips(), w = W / list.length;
     g.textAlign = 'center'; g.textBaseline = 'middle';
     list.forEach((name, i) => {
@@ -730,6 +792,16 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
     if (!$('start').hidden) return;
     cv.setPointerCapture(e.pointerId);
     const p = pos(e);
+    if (circleOn()) {                                          // Kreis: Akkord antippen
+      const G = circleGeo(), list = strips();
+      let i = -1, bd = 1e9;
+      G.pads.forEach((q, k) => { const d = Math.hypot(p.x - q.x, p.y - q.y); if (d < G.pr * 1.15 && d < bd) { bd = d; i = k; } });
+      if (i < 0) return;
+      const chord = list[i]; lastChord = chord;
+      if (S.auto) { startAuto(chord); wake(); return; }
+      flash[i] = e.timeStamp + 160; sounding(chord).forEach((s, n) => pick(s, .85, n * .012, chord)); wake();
+      return;
+    }
     if (S.mode === 'smart') {
       const list = strips(), i = Math.max(0, Math.min(list.length - 1, Math.floor(p.x / (W / list.length)))), chord = list[i];
       lastChord = chord;
@@ -810,7 +882,7 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
     g.setTransform(DPR, 0, 0, DPR, 0, 0);
     let busy = fingers.size > 0;
     for (let s = 0; s < 6; s++) {
-      drawString(s);
+      if (!circleOn()) drawString(s);
       wobble[s] = wobble[s] < .01 ? 0 : wobble[s] * (voices[s] ? .975 : .9);
       if (wobble[s]) busy = true;
     }
@@ -939,7 +1011,7 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
     const smart = S.mode === 'smart';
     $('rowFret').hidden = smart; $('rowSmart').hidden = !smart;
     press($('modes'), $(smart ? 'm-smart' : 'm-fret'));
-    $('hint').textContent = !smart ? HINTS.fret : S.auto ? HINTS.auto : HINTS.strip;
+    $('hint').textContent = !smart ? HINTS.fret : S.auto ? HINTS.auto : S.circle ? 'Akkord im Kreis antippen schlägt ihn an. Mit der Kopfsteuerung: aus der Mitte in Richtung des Akkords schauen.' : HINTS.strip;
     $('bpmLabel').textContent = S.bpm + ' BPM';
     renderKnobs();
   }
@@ -1461,17 +1533,29 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
     }
     HEAD.lost = 0;
     const nx = lm[1].x, gain = +S.headGain || 4.5;            // Nasenspitze
-    if (HEAD.cx == null) { HEAD.cx = nx; HEAD.px = .5; }
+    const ny = lm[1].y;
+    if (HEAD.cx == null) { HEAD.cx = nx; HEAD.cy = ny; HEAD.px = .5; HEAD.py = .5; }
     if (!HEAD.seen) headStat('');
     HEAD.seen = true;
     // Kamerabild ist ungespiegelt: Kopf nach rechts drehen = Zeiger nach rechts
     const tx = Math.min(1, Math.max(0, .5 + (HEAD.cx - nx) * gain));
     HEAD.px += (tx - HEAD.px) * .35;
+    const ty = Math.min(1, Math.max(0, .5 + (ny - HEAD.cy) * gain * 1.4));   // Kopf nicken: nach unten = Zeiger nach unten
+    HEAD.py += (ty - HEAD.py) * .35;
     const list = strips(), n = list.length;
-    let i = Math.max(0, Math.min(n - 1, Math.floor(HEAD.px * n)));
-    if (HEAD.idx >= 0 && HEAD.idx < n && i !== HEAD.idx) {    // etwas Spielraum am Rand, damit es nicht flackert
-      const edge = HEAD.px * n - HEAD.idx;
-      if (edge > -.12 && edge < 1.12) i = HEAD.idx;
+    let i;
+    if (circleOn()) {                                          // Kreis: aus der Mitte in die Richtung des Akkords
+      const G = circleGeo(), reach = (G.R + G.pr) * 1.1;
+      HEAD.hx = Math.max(G.cx - reach, Math.min(G.cx + reach, G.cx + (HEAD.px - .5) * 2 * reach));
+      HEAD.hy = Math.max(G.cy - reach, Math.min(G.cy + reach, G.cy + (HEAD.py - .5) * 2 * reach));
+      i = circleSector(HEAD.hx, HEAD.hy, G, HEAD.idx);
+      if (i < 0) { HEAD.idx = -1; HEAD.prog = 0; HEAD.fired = -1; wake(); return; }
+    } else {
+      i = Math.max(0, Math.min(n - 1, Math.floor(HEAD.px * n)));
+      if (HEAD.idx >= 0 && HEAD.idx < n && i !== HEAD.idx) {  // etwas Spielraum am Rand, damit es nicht flackert
+        const edge = HEAD.px * n - HEAD.idx;
+        if (edge > -.12 && edge < 1.12) i = HEAD.idx;
+      }
     }
     if (i !== HEAD.idx) { HEAD.idx = i; HEAD.since = now; HEAD.fired = -1; }
     const dwell = +S.headDwell || 0, chord = list[i];
@@ -1492,6 +1576,9 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
     el.onchange = () => { S[id] = +el.value; save(); };
   });
   $('headBtn').onclick = () => (HEAD.on ? headStop() : headStart());
+  const circleSync = () => $('circleBtn').setAttribute('aria-pressed', !!S.circle);
+  $('circleBtn').onclick = () => { S.circle = !S.circle; HEAD.idx = -1; save(); circleSync(); applyMode(); layout(); wake(); };
+  circleSync();
   $('headCenter').onclick = () => { HEAD.cx = null; };
 
   window.__saitenzug = { ctx, voices, fingers, S, banks, P, KEYS, CHORDS, recType, HEAD };
