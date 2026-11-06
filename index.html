@@ -294,19 +294,19 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
     { id: 'clean',  name: 'Clean',       trim: 1.1, send: .9, fam: 'guitar' },
     { id: 'crunch', name: 'Crunch',      trim: .6,  send: .7, fam: 'guitar' },
     { id: 'lead',   name: 'Verzerrt',    trim: .5,  send: .7, fam: 'guitar' },
-    { id: 'piano',  name: 'Klavier',     trim: .62, send: 1,  fam: 'piano' },   // FluidR3 GM, Programm 0
-    { id: 'epiano', name: 'E-Piano',     trim: .7,  send: 1,  fam: 'piano' },   // FluidR3 GM, Programm 4
+    { id: 'piano',  name: 'Klavier',     trim: .62, send: 1,  fam: 'piano', pedal: 1 },   // FluidR3 GM, Programm 0
+    { id: 'epiano', name: 'E-Piano',     trim: .7,  send: 1,  fam: 'piano', pedal: 1 },   // FluidR3 GM, Programm 4
     // Aus MIGAs SoundFont (GeneralUser GS): Dateien in banks/, werden erst bei Bedarf geladen. Ohne Rhythmus/Arpeggio.
-    { id: 'drums',    name: 'Schlagzeug',   trim: .55, send: .6, fam: 'piano', file: 1, noAuto: 1, drums: 1 },
-    { id: 'flute',    name: 'Flöte',        trim: .42, send: 1,  fam: 'piano', file: 1, noAuto: 1 },
-    { id: 'clarinet', name: 'Klarinette',   trim: .42, send: 1,  fam: 'piano', file: 1, noAuto: 1 },
-    { id: 'sax',      name: 'Saxophon',     trim: .42, send: 1,  fam: 'piano', file: 1, noAuto: 1 },
-    { id: 'glock',    name: 'Glockenspiel', trim: .5,  send: 1,  fam: 'piano', file: 1, noAuto: 1 },
-    { id: 'marimba',  name: 'Marimba',      trim: .55, send: 1,  fam: 'piano', file: 1, noAuto: 1 },
-    { id: 'violin',   name: 'Violine',      trim: .42, send: 1,  fam: 'piano', file: 1, noAuto: 1 },
-    { id: 'cello',    name: 'Cello',        trim: .45, send: 1,  fam: 'piano', file: 1, noAuto: 1 },
-    { id: 'strings',  name: 'Streicher',    trim: .42, send: 1,  fam: 'piano', file: 1, noAuto: 1 },
-    { id: 'pizz',     name: 'Pizzicato',    trim: .55, send: 1,  fam: 'piano', file: 1, noAuto: 1 },
+    { id: 'drums',    name: 'Schlagzeug',   trim: .55, send: .6, fam: 'piano', file: 1, noAuto: 1, perc: 1, drums: 1 },
+    { id: 'flute',    name: 'Flöte',        trim: .42, send: 1,  fam: 'piano', file: 1, noAuto: 1, hold: 1 },
+    { id: 'clarinet', name: 'Klarinette',   trim: .42, send: 1,  fam: 'piano', file: 1, noAuto: 1, hold: 1 },
+    { id: 'sax',      name: 'Saxophon',     trim: .42, send: 1,  fam: 'piano', file: 1, noAuto: 1, hold: 1 },
+    { id: 'glock',    name: 'Glockenspiel', trim: .5,  send: 1,  fam: 'piano', file: 1, noAuto: 1, perc: 1 },
+    { id: 'marimba',  name: 'Marimba',      trim: .55, send: 1,  fam: 'piano', file: 1, noAuto: 1, perc: 1 },
+    { id: 'violin',   name: 'Violine',      trim: .42, send: 1,  fam: 'piano', file: 1, noAuto: 1, hold: 1 },
+    { id: 'cello',    name: 'Cello',        trim: .45, send: 1,  fam: 'piano', file: 1, noAuto: 1, hold: 1 },
+    { id: 'strings',  name: 'Streicher',    trim: .42, send: 1,  fam: 'piano', file: 1, noAuto: 1, hold: 1 },
+    { id: 'pizz',     name: 'Pizzicato',    trim: .55, send: 1,  fam: 'piano', file: 1, noAuto: 1, perc: 1 },
   ];
   const CHIPS = ['Am', 'A', 'C', 'D', 'Dm', 'E', 'Em', 'F', 'G', 'H7'];
   const KEYS = {};                                            // wird unten aus der Tonleiter erzeugt
@@ -484,6 +484,13 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
       const list = results.filter(r => r.status === 'fulfilled').map(r => r.value);
       if (!list.length) throw results[0].reason;                // one bad sample must not silence the instrument
       banks[id] = Object.fromEntries(list);
+      // Blas- und Streichinstrumente: Halte-Schleife im gleichmäßigen Teil, damit der Ton so lange klingt wie die Taste gedrückt ist
+      if ((INSTRUMENTS.find(i => i.id === id) || {}).hold) Object.values(banks[id]).forEach(smp => {
+        const d = smp.buffer.getChannelData(0), sr = smp.buffer.sampleRate;
+        const zero = t => { let i = Math.floor(t * sr); for (let k = 0; k < sr * .02 && i + 1 < d.length; k++, i++) if (d[i] <= 0 && d[i + 1] > 0) return i / sr; return t; };
+        const a = smp.offset + .9, b = Math.min(smp.buffer.duration - .8, smp.offset + 2.9);
+        if (b - a > .5) { smp.loopStart = zero(a); smp.loopEnd = zero(b); }
+      });
       return banks[id];
     }).catch(err => { delete loading[id]; throw err; }));
   }
@@ -512,7 +519,8 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
     src.playbackRate.value = rate;
     const peak = vel * inst().trim, dur = (smp.buffer.duration - smp.offset) / rate;
     gain.gain.setValueAtTime(peak, t);
-    gain.gain.setTargetAtTime(0, t + dur * .72, dur * .07);      // no hard stop when the sample runs out
+    if (inst().hold && smp.loopEnd) { src.loop = true; src.loopStart = smp.loopStart; src.loopEnd = smp.loopEnd; gain.gain.setTargetAtTime(0, t + 30, .5); }
+    else gain.gain.setTargetAtTime(0, t + dur * .72, dur * .07);      // no hard stop when the sample runs out
     src.connect(gain);
     let tail = gain;
     if (ctx.createStereoPanner) { const p = ctx.createStereoPanner(); p.pan.value = (s - 2.5) * .05; gain.connect(p); tail = p; }
@@ -849,6 +857,9 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
   const pickChord = [null, null, null, null, null, null];      // welcher Akkord zuletzt auf dieser Stimme klang
   const flash = [0, 0, 0, 0, 0, 0, 0, 0];
   // Ton einer „Saite“ eines Akkords (Gitarre: Bund + Stimmung, Klavier: Stimme der Lage)
+  // Loslassen beendet den Ton: Blas-/Streichinstrumente immer, Klavier/E-Piano nur ohne Pedal
+  const releaseOnUp = () => piano() && (inst().hold || (inst().pedal && !S.ring));
+  function releaseStrings(list, chord) { list.forEach(s => { if (voices[s] && (!chord || pickChord[s] === chord)) killVoice(s, inst().hold ? .06 : .09); }); }
   const autoOn = () => !!S.auto && !inst().noAuto;            // Melodie-Instrumente und Schlagzeug: ohne Rhythmus/Arpeggio
   const noteOf = (c, s) => piano() ? pianoVoicing(c)[s] : (CHORDS[c] && CHORDS[c][s] !== null ? TUNING[s] + CHORDS[c][s] : null);
   const sounding = c => [0, 1, 2, 3, 4, 5].filter(s => noteOf(c, s) !== null);
@@ -918,6 +929,7 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
       const chord = list[i]; lastChord = chord;
       if (autoOn()) { startAuto(chord); wake(); return; }
       flash[i] = e.timeStamp + 160; sounding(chord).forEach((s, n) => pick(s, .85, n * .012, chord)); wake();
+      fingers.set(e.pointerId, { type: 'hold', chord, ss: sounding(chord) });
       return;
     }
     if (S.mode === 'smart') {
@@ -925,9 +937,9 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
       lastChord = chord;
       if (autoOn()) { startAuto(chord); wake(); return; }
       flash[i] = e.timeStamp + 160;
-      if (p.y < L.head || (piano() && isNote(chord))) { sounding(chord).forEach((s, n) => pick(s, .85, n * .012, chord)); return; }
+      if (p.y < L.head || (piano() && isNote(chord))) { sounding(chord).forEach((s, n) => pick(s, .85, n * .012, chord)); fingers.set(e.pointerId, { type: 'hold', chord, ss: sounding(chord) }); return; }
       const s = stringAt(p.y);
-      fingers.set(e.pointerId, { type: 'pick', chord, y: p.y, last: s, time: e.timeStamp });
+      fingers.set(e.pointerId, { type: 'pick', chord, y: p.y, last: s, time: e.timeStamp, played: new Set([s]) });
       pick(s, .8, 0, chord);
       return;
     }
@@ -974,7 +986,7 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
         const y = stringY(s);
         return s !== f.last && ((f.y < y && p.y >= y) || (f.y > y && p.y <= y));
       }).sort((a, b) => (stringY(a) - stringY(b)) * (p.y > f.y ? 1 : -1));
-      order.forEach((s, i) => { pick(s, vel, i * .007, f.chord); f.last = s; });
+      order.forEach((s, i) => { pick(s, vel, i * .007, f.chord); f.last = s; if (f.played) f.played.add(s); });
       f.y = p.y; f.time = e.timeStamp;
     } else {
       const a = fretAt(p.x - 10), b = fretAt(p.x + 10);
@@ -987,6 +999,7 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
   function pointerUp(e) {
     const f = fingers.get(e.pointerId); if (!f) return;
     fingers.delete(e.pointerId);
+    if ((f.type === 'hold' || (f.type === 'pick' && f.played)) && releaseOnUp()) { releaseStrings(f.ss || [...f.played], f.chord); wake(); return; }
     if (f.type === 'key') { if (![...fingers.values()].some(o => o.type === 'key' && o.midi === f.midi)) releaseKey(f.midi); wake(); return; }
     if (f.type !== 'fret') return;
     const next = topFinger(f.s), v = voices[f.s];
@@ -1154,7 +1167,9 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
     const src = ctx.createBufferSource(), gain = ctx.createGain(); src.buffer = smp.buffer;
     const rate = Math.pow(2, (midi - b) / 12); src.playbackRate.value = rate;
     const dur = (smp.buffer.duration - smp.offset) / rate;
-    gain.gain.setValueAtTime(vel * inst().trim, t); gain.gain.setTargetAtTime(0, t + dur * .75, dur * .07);
+    gain.gain.setValueAtTime(vel * inst().trim, t);
+    if (inst().hold && smp.loopEnd) { src.loop = true; src.loopStart = smp.loopStart; src.loopEnd = smp.loopEnd; gain.gain.setTargetAtTime(0, t + 30, .5); }
+    else gain.gain.setTargetAtTime(0, t + dur * .75, dur * .07);
     src.connect(gain);
     let tail = gain;
     if (ctx.createStereoPanner) { const pn = ctx.createStereoPanner(); pn.pan.value = Math.max(-.6, Math.min(.6, (midi - 60) / 40)); gain.connect(pn); tail = pn; }
@@ -1166,7 +1181,8 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
     kvoices.set(midi, v);
   }
   function releaseKey(midi) {
-    if (S.ring) return;                                        // Pedal gedrückt: weiterklingen lassen
+    if (inst().perc) return;                                   // Schlaginstrumente klingen von selbst aus
+    if (inst().pedal && S.ring) return;                        // Klavier mit Pedal: weiterklingen lassen
     const v = kvoices.get(midi); if (!v) return;
     kvoices.delete(midi);
     v.gain.gain.cancelScheduledValues(ctx.currentTime); v.gain.gain.setTargetAtTime(0, ctx.currentTime, .09);
@@ -1259,6 +1275,7 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
     $('lPick').textContent = pf ? 'Arpeggio' : 'Zupfen';
     $('kPick').setAttribute('aria-label', pf ? 'Arpeggio-Muster' : 'Zupfmuster');
     $('ring').textContent = pf ? 'Pedal' : 'Ausklingen';
+    $('ring').hidden = pf && !inst().pedal;
     $('chords').hidden = pf;
     $('chordEdit').textContent = pf ? '✎ Akkorde/Töne' : '✎ Akkorde';
     $('cpTitle').textContent = pf ? 'Akkorde/Töne' : 'Akkorde';
@@ -1846,7 +1863,7 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
       HEAD.hx = Math.max(G.cx - reach, Math.min(G.cx + reach, G.cx + (HEAD.px - .5) * 2 * reach));
       HEAD.hy = Math.max(G.cy - reach, Math.min(G.cy + reach, G.cy + (HEAD.py - .5) * 2 * reach));
       i = circleSector(HEAD.hx, HEAD.hy, G, HEAD.idx);
-      if (i < 0) { HEAD.idx = -1; HEAD.prog = 0; HEAD.fired = -1; wake(); return; }
+      if (i < 0) { if (HEAD.held && piano() && inst().hold) { releaseStrings(sounding(HEAD.held), HEAD.held); HEAD.held = null; } HEAD.idx = -1; HEAD.prog = 0; HEAD.fired = -1; wake(); return; }
     } else {
       i = Math.max(0, Math.min(n - 1, Math.floor(HEAD.px * n)));
       if (HEAD.idx >= 0 && HEAD.idx < n && i !== HEAD.idx) {  // etwas Spielraum am Rand, damit es nicht flackert
@@ -1854,14 +1871,14 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
         if (edge > -.12 && edge < 1.12) i = HEAD.idx;
       }
     }
-    if (i !== HEAD.idx) { HEAD.idx = i; HEAD.since = now; HEAD.fired = -1; }
+    if (i !== HEAD.idx) { if (HEAD.held && piano() && inst().hold) { releaseStrings(sounding(HEAD.held), HEAD.held); HEAD.held = null; } HEAD.idx = i; HEAD.since = now; HEAD.fired = -1; }
     const dwell = +S.headDwell || 0, chord = list[i];
     const playing = P.on ? (P.next || P.chord) : null;
     if (HEAD.fired === i && (!P.on || playing === chord)) HEAD.prog = 1;
     else {
       HEAD.prog = dwell > 0 ? Math.min(1, (now - HEAD.since) / dwell) : 1;
       if (HEAD.prog >= 1) {
-        HEAD.fired = i; lastChord = chord; flash[i] = now + 160;
+        HEAD.fired = i; lastChord = chord; flash[i] = now + 160; HEAD.held = chord;
         if (autoOn()) { if (!P.on || playing !== chord) startAuto(chord); }
         else sounding(chord).forEach((st, k) => pick(st, .85, k * .012, chord));
       }
@@ -1878,7 +1895,7 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
   circleSync();
   $('headCenter').onclick = () => { HEAD.cx = null; };
 
-  window.__saitenzug = { ctx, voices, fingers, S, banks, P, KEYS, CHORDS, recType, HEAD };
+  window.__saitenzug = { ctx, voices, fingers, S, banks, P, KEYS, CHORDS, recType, HEAD, kvoices };
 })();
 </script>
 
