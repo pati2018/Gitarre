@@ -950,9 +950,9 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
       G.pads.forEach((q, k) => { const d = Math.hypot(p.x - q.x, p.y - q.y); if (d < G.pr * 1.15 && d < bd) { bd = d; i = k; } });
       if (i < 0) return;
       const chord = list[i]; lastChord = chord;
-      if (autoOn()) { startAuto(chord); wake(); return; }
+      if (autoOn()) { startAuto(chord); fingers.set(e.pointerId, { type: 'hold', chord, ss: [], i, glide: 'circle', auto: true }); wake(); return; }
       flash[i] = e.timeStamp + 160; sounding(chord).forEach((s, n) => pick(s, .85, n * .012, chord)); wake();
-      fingers.set(e.pointerId, { type: 'hold', chord, ss: sounding(chord) });
+      fingers.set(e.pointerId, { type: 'hold', chord, ss: sounding(chord), i, glide: 'circle' });
       return;
     }
     if (S.mode === 'smart' && toneEditOn()) {                   // „Töne wählen“: Reihe antippen = Ton an/aus
@@ -971,9 +971,9 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
     if (S.mode === 'smart') {
       const list = strips(), i = Math.max(0, Math.min(list.length - 1, Math.floor(p.x / (W / list.length)))), chord = list[i];
       lastChord = chord;
-      if (autoOn()) { startAuto(chord); wake(); return; }
+      if (autoOn()) { startAuto(chord); fingers.set(e.pointerId, { type: 'hold', chord, ss: [], i, glide: 'strip', auto: true }); wake(); return; }
       flash[i] = e.timeStamp + 160;
-      if (p.y < L.head || (piano() && isNote(chord))) { sounding(chord).forEach((s, n) => pick(s, .85, n * .012, chord)); fingers.set(e.pointerId, { type: 'hold', chord, ss: sounding(chord) }); return; }
+      if (p.y < L.head || (piano() && isNote(chord))) { sounding(chord).forEach((s, n) => pick(s, .85, n * .012, chord)); fingers.set(e.pointerId, { type: 'hold', chord, ss: sounding(chord), i, glide: 'strip' }); return; }
       const s = stringAt(p.y);
       fingers.set(e.pointerId, { type: 'pick', chord, y: p.y, last: s, time: e.timeStamp, played: new Set([s]) });
       pick(s, .8, 0, chord);
@@ -1010,6 +1010,28 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
     const f = fingers.get(e.pointerId); if (!f) return;
     e.preventDefault();
     const p = pos(e);
+    if (f.type === 'hold' && f.glide && S.mode === 'smart') {  // von Akkord zu Akkord gleiten, ohne den Finger zu heben
+      const list = strips(); let j = -1;
+      if (f.glide === 'circle' && circleOn()) {
+        const G = circleGeo(); let bd = 1e9;
+        G.pads.forEach((q, k) => { const d = Math.hypot(p.x - q.x, p.y - q.y); if (d < G.pr * 1.05 && d < bd) { bd = d; j = k; } });
+      } else if (f.glide === 'strip') {
+        const w = W / list.length, edge = (p.x - f.i * w) / w;
+        if (edge < -.08 || edge > 1.08) j = Math.max(0, Math.min(list.length - 1, Math.floor(p.x / w)));   // kleiner Rand gegen Flattern
+      }
+      if (j >= 0 && j !== f.i && list[j]) {
+        const old = f.chord, chord = list[j];
+        f.i = j; f.chord = chord; lastChord = chord;
+        if (f.auto || autoOn()) { if (!P.on || (P.next || P.chord) !== chord) startAuto(chord); }
+        else {
+          if (releaseOnUp()) releaseStrings(f.ss, old);
+          flash[j] = e.timeStamp + 160; f.ss = sounding(chord);
+          f.ss.forEach((st, n) => pick(st, .85, n * .012, chord));
+        }
+        wake();
+      }
+      return;
+    }
     if (f.type === 'key') {                                    // über die Tasten wischen = Glissando
       const k = keyAt(p.x, p.y);
       if (k && k.midi !== f.midi) { const old = f.midi; f.midi = k.midi; if (![...fingers.values()].some(o => o.type === 'key' && o.midi === old)) releaseKey(old); playKey(k.midi, .7); wake(); }
@@ -1035,6 +1057,7 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
   function pointerUp(e) {
     const f = fingers.get(e.pointerId); if (!f) return;
     fingers.delete(e.pointerId);
+    if (f.type === 'hold' && f.auto) { wake(); return; }
     if ((f.type === 'hold' || (f.type === 'pick' && f.played)) && releaseOnUp()) { releaseStrings(f.ss || [...f.played], f.chord); wake(); return; }
     if (f.type === 'key') { if (![...fingers.values()].some(o => o.type === 'key' && o.midi === f.midi)) releaseKey(f.midi); wake(); return; }
     if (f.type !== 'fret') return;
