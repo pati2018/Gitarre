@@ -234,6 +234,7 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
       <button id="toneEdit" aria-pressed="false" title="In der Leiste festlegen, welche Töne eines Akkords klingen">✎ Töne wählen</button>
       <button id="pedal2" aria-pressed="true" title="Pedal: Töne klingen nach dem Loslassen weiter">Pedal</button>
       <button id="circleBtn" aria-pressed="false" title="Akkorde im Kreis anordnen – gut für die Kopfsteuerung">◯ Kreis</button>
+      <button id="bwBtn" aria-pressed="false" title="Boomwhacker-Farben für Kreis und Säulen">🎨 Farben</button>
       <button id="pillarBtn" aria-pressed="false" title="Akkorde als große Säulen nebeneinander (wie eine Panflöte)">▮▮▮ Säulen</button>
       <button id="headBtn" aria-pressed="false" title="Kopfsteuerung: die Nase führt einen Zeiger über die Akkorde">👃 Kopf</button>
       <span class="group" id="headOpts" hidden>
@@ -710,9 +711,15 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
   // Kreis-Anordnung: Akkorde rund um eine Mitte, der erste oben (12 Uhr), dann im Uhrzeigersinn
   const circleOn = () => S.mode === 'smart' && S.circle;
   const pillarsOn = () => S.mode === 'smart' && S.pillars && !S.circle;     // Säulen wie eine Panflöte
+  // Boomwhacker-Farben nach dem Grundton (C rot … H magenta), einschaltbar mit „🎨 Farben“
+  const BW = ['#e5212e', '#f0582a', '#f7921d', '#ffc20e', '#ffe600', '#8dc63f', '#00a651', '#00a99d', '#0072bc', '#5c2d91', '#a3238e', '#ec008c'];
+  const bwOn = () => !!S.bw && (circleOn() || pillarsOn());
+  function bwOf(name) { const i = parseChord(name); return i ? BW[i.r] : null; }
+  function inkOn(hex) { const n = parseInt(hex.slice(1), 16), r = n >> 16, gg = n >> 8 & 255, b = n & 255; return (r * 299 + gg * 587 + b * 114) / 1000 > 150 ? '#2a1610' : '#ffffff'; }
+  function shade(hex, f) { const n = parseInt(hex.slice(1), 16), c = v => Math.max(0, Math.min(255, Math.round(v * f))); return `rgb(${c(n >> 16)},${c(n >> 8 & 255)},${c(n & 255)})`; }
   function pillarGeo() {
     const n = strips().length, gap = Math.max(8, Math.min(16, W * .012)), w = (W - gap * (n + 1)) / n, top = 10, maxH = H - 20;
-    return Array.from({ length: n }, (_, i) => { const h = maxH * (1 - .42 * (n > 1 ? i / (n - 1) : 0)); return { x: gap + i * (w + gap), y: top, w, h }; });
+    return Array.from({ length: n }, (_, i) => { const h = maxH; return { x: gap + i * (w + gap), y: top, w, h }; });
   }
   function circleGeo() {
     const n = strips().length, cx = W / 2, cy = H / 2, m = Math.min(W, H);
@@ -793,14 +800,15 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
     g.textAlign = 'center'; g.textBaseline = 'middle';
     list.forEach((name, i) => {
       const p = G.pads[i], on = P.on && P.chord === name, wait = P.on && P.next === name, fl = flash[i] > ts || (i < 5 && swDown[i]);
-      g.fillStyle = on ? '#f0a83a' : fl ? '#5a3424' : '#1b0e0a';
+      const col = bwOn() && bwOf(name);
+      g.fillStyle = col ? (on || fl ? shade(col, 1.18) : col) : on ? '#f0a83a' : fl ? '#5a3424' : '#1b0e0a';
       g.beginPath(); g.arc(p.x, p.y, G.pr, 0, 7); g.fill();
-      g.lineWidth = 3; g.strokeStyle = on ? '#2a1610' : 'rgba(243,239,228,.55)'; g.stroke();
+      g.lineWidth = col && (on || fl) ? 7 : 3; g.strokeStyle = col ? (on || fl ? '#ffffff' : 'rgba(255,255,255,.35)') : on ? '#2a1610' : 'rgba(243,239,228,.55)'; g.stroke();
       if (wait) { g.strokeStyle = '#f0a83a'; g.lineWidth = 4; g.beginPath(); g.arc(p.x, p.y, G.pr + 6, 0, 7); g.stroke(); }
-      g.fillStyle = on ? '#2a1610' : '#f3efe4';
+      g.fillStyle = col ? inkOn(col) : on ? '#2a1610' : '#f3efe4';
       g.font = `600 ${Math.round(Math.min(G.pr * .62, 44))}px "Barlow Condensed", "Arial Narrow", sans-serif`;
       g.fillText(name, p.x, p.y);
-      if (i < 5) { g.font = '700 13px "Barlow Condensed", "Arial Narrow", sans-serif'; g.fillStyle = on ? 'rgba(42,22,16,.7)' : swDown[i] ? '#f0a83a' : 'rgba(243,239,228,.5)'; g.fillText('SW' + (i + 1), p.x, p.y - G.pr * .55); }
+      if (i < 5) { g.font = '700 13px "Barlow Condensed", "Arial Narrow", sans-serif'; g.fillStyle = col ? inkOn(col) : on ? 'rgba(42,22,16,.7)' : swDown[i] ? '#f0a83a' : 'rgba(243,239,228,.5)'; g.fillText('SW' + (i + 1), p.x, p.y - G.pr * .55); }
       if (on && PATTERNS[S.auto]) {                           // Taktpunkte unter dem Namen
         const pat = PATTERNS[S.auto], beats = pat.len / 4, cur = Math.floor(((P.step + pat.len - 1) % pat.len) / 4);
         for (let b = 0; b < beats; b++) { g.fillStyle = b === cur ? '#2a1610' : 'rgba(42,22,16,.3)'; g.beginPath(); g.arc(p.x + (b - (beats - 1) / 2) * 11, p.y + G.pr * .52, 3.2, 0, 7); g.fill(); }
@@ -824,14 +832,15 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
     g.textAlign = 'center'; g.textBaseline = 'middle';
     list.forEach((name, i) => {
       const q = Q[i], on = P.on && P.chord === name, wait = P.on && P.next === name, fl = flash[i] > ts || (i < 5 && swDown[i]);
-      const gr = g.createLinearGradient(q.x, 0, q.x + q.w, 0);
-      gr.addColorStop(0, on ? '#f7c56c' : fl ? '#6a3e2a' : '#2a1913'); gr.addColorStop(.5, on ? '#f0a83a' : fl ? '#5a3424' : '#1b0e0a'); gr.addColorStop(1, on ? '#c9862a' : fl ? '#4a2a1c' : '#120906');
+      const col = bwOn() && bwOf(name), gr = g.createLinearGradient(q.x, 0, q.x + q.w, 0);
+      if (col) { const k = on || fl ? 1.18 : 1; gr.addColorStop(0, shade(col, 1.12 * k)); gr.addColorStop(.5, shade(col, k)); gr.addColorStop(1, shade(col, .8 * k)); }
+      else { gr.addColorStop(0, on ? '#f7c56c' : fl ? '#6a3e2a' : '#2a1913'); gr.addColorStop(.5, on ? '#f0a83a' : fl ? '#5a3424' : '#1b0e0a'); gr.addColorStop(1, on ? '#c9862a' : fl ? '#4a2a1c' : '#120906'); }
       g.fillStyle = gr; g.beginPath(); if (g.roundRect) g.roundRect(q.x, q.y, q.w, q.h, [10, 10, q.w / 2, q.w / 2]); else g.rect(q.x, q.y, q.w, q.h); g.fill();
-      g.lineWidth = 3; g.strokeStyle = on ? '#2a1610' : wait ? '#f0a83a' : 'rgba(243,239,228,.4)'; g.stroke();
-      g.fillStyle = on ? '#2a1610' : '#f3efe4';
+      g.lineWidth = col && (on || fl) ? 7 : 3; g.strokeStyle = col ? (on || fl ? '#ffffff' : wait ? '#2a1610' : 'rgba(255,255,255,.35)') : on ? '#2a1610' : wait ? '#f0a83a' : 'rgba(243,239,228,.4)'; g.stroke();
+      g.fillStyle = col ? inkOn(col) : on ? '#2a1610' : '#f3efe4';
       g.font = `600 ${Math.round(Math.max(18, Math.min(q.w * .34, 46)))}px "Barlow Condensed", "Arial Narrow", sans-serif`;
       g.fillText(name, q.x + q.w / 2, q.y + Math.min(60, q.h * .16));
-      if (i < 5) { g.font = '700 13px "Barlow Condensed", "Arial Narrow", sans-serif'; g.fillStyle = on ? 'rgba(42,22,16,.7)' : swDown[i] ? '#f0a83a' : 'rgba(243,239,228,.45)'; g.fillText('SW' + (i + 1), q.x + q.w / 2, q.y + Math.min(60, q.h * .16) + 30); }
+      if (i < 5) { g.font = '700 13px "Barlow Condensed", "Arial Narrow", sans-serif'; g.fillStyle = col ? inkOn(col) : on ? 'rgba(42,22,16,.7)' : swDown[i] ? '#f0a83a' : 'rgba(243,239,228,.45)'; g.fillText('SW' + (i + 1), q.x + q.w / 2, q.y + Math.min(60, q.h * .16) + 30); }
       if (on && PATTERNS[S.auto]) {
         const pat = PATTERNS[S.auto], beats = pat.len / 4, cur = Math.floor(((P.step + pat.len - 1) % pat.len) / 4);
         for (let b = 0; b < beats; b++) { g.fillStyle = b === cur ? '#2a1610' : 'rgba(42,22,16,.3)'; g.beginPath(); g.arc(q.x + q.w / 2 + (b - (beats - 1) / 2) * 11, q.y + q.h - 24, 3.2, 0, 7); g.fill(); }
@@ -2065,8 +2074,9 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
   });
   $('headBtn').onclick = () => (HEAD.on ? headStop() : headStart());
   $('toneEdit').onclick = () => { toneEdit = !toneEdit; if (toneEdit && P.on) stopAuto(); applyMode(); wake(); };
-  const circleSync = () => { $('circleBtn').setAttribute('aria-pressed', !!S.circle); $('pillarBtn').setAttribute('aria-pressed', !!S.pillars && !S.circle); };
+  const circleSync = () => { $('circleBtn').setAttribute('aria-pressed', !!S.circle); $('pillarBtn').setAttribute('aria-pressed', !!S.pillars && !S.circle); $('bwBtn').setAttribute('aria-pressed', !!S.bw); $('bwBtn').hidden = !(S.circle || S.pillars); };
   $('circleBtn').onclick = () => { S.circle = !S.circle; if (S.circle) S.pillars = false; HEAD.idx = -1; save(); circleSync(); applyMode(); layout(); wake(); };
+  $('bwBtn').onclick = () => { S.bw = !S.bw; save(); circleSync(); wake(); };
   $('pillarBtn').onclick = () => { S.pillars = !S.pillars; if (S.pillars) S.circle = false; HEAD.idx = -1; save(); circleSync(); applyMode(); layout(); wake(); };
   circleSync();
   $('headCenter').onclick = () => { HEAD.cx = null; };
