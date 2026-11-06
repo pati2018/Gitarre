@@ -582,7 +582,7 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
     paintBase(); refreshPos(); wake();
   }
   const piano = () => S.family === 'piano';
-  const flipped = () => piano() ? !S.flip : S.flip;          // Klavier: hohe Töne oben
+  const flipped = () => (piano() || S.mode === 'smart') ? !S.flip : S.flip;   // Klavier und Gitarren-Akkorde: hohe Töne oben, tiefe E-Saite unten
   const stringY = s => L.top + ((flipped() ? 5 - s : s) + .5) * L.sp;
   function stringAt(y) {
     const row = Math.max(0, Math.min(5, Math.floor((y - L.top) / L.sp)));
