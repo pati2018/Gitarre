@@ -165,6 +165,10 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
 #toneEdit[aria-pressed="true"] { background: var(--amber); color: var(--rose); border-color: var(--rose); }
 #headBtn[aria-pressed="true"] { background: var(--amber); color: var(--rose); border-color: var(--rose); }
 .presets { right: 10px; left: auto; width: min(560px, calc(100% - 20px)); max-height: calc(100% - 20px); overflow-y: auto; }
+.sw-grid { display: flex; flex-direction: column; gap: 8px; }
+.sw-grid label { display: flex; align-items: center; gap: 12px; font-size: 18px; }
+.sw-grid label b { min-width: 42px; }
+.sw-grid select { flex: 1; min-width: 0; }
 .ps-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
 .ps-grid button { height: auto; min-height: 56px; padding: 6px; display: flex; flex-direction: column; align-items: center; justify-content: center; line-height: 1.1; }
 .ps-grid button small { font-size: 12px; opacity: .7; font-weight: 500; }
@@ -253,6 +257,7 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
         <select id="headDwell" aria-label="Verweilen" title="So lange muss der Zeiger auf einem Akkord bleiben"><option value="0">sofort</option><option value="250">0,25 s</option><option value="500">0,5 s</option><option value="1000">1 s</option><option value="1500">1,5 s</option><option value="2000">2 s</option></select>
         <select id="headGain" aria-label="Bewegung" title="Wie weit der Kopf sich bewegen muss"><option value="3">groß</option><option value="4.5">mittel</option><option value="6.5">klein</option></select>
       </span>
+      <button id="swBtn" aria-expanded="false" title="Jedem SoundWhacker (SW1–SW5) ein eigenes Instrument geben" aria-label="SoundWhacker-Klänge">🔔 SW</button>
       <div class="group" id="autos" role="group" aria-label="Autoplay" style="gap:14px">
         <div class="knobwrap"><div class="knob" id="kStrum" role="slider" tabindex="0" aria-label="Schlagmuster"></div><span class="label" id="lStrum">Schlagen</span></div>
         <div class="knobwrap"><div class="knob" id="kPick" role="slider" tabindex="0" aria-label="Zupfmuster"></div><span class="label" id="lPick">Zupfen</span></div>
@@ -284,12 +289,18 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
       </div>
     </div>
     <div class="chordpick presets" id="presetPick" role="dialog" aria-label="Presets" hidden>
-      <div class="cp-head"><strong>💾 Presets</strong><span class="cp-info">Speichert wirklich alles: Instrument, Klang, Tonart, Akkorde/Töne, Muster, Tempo, Hall, Pedal, Kreis, Spiegeln, Kamera, Kopfsteuerung …</span></div>
+      <div class="cp-head"><strong>💾 Presets</strong><span class="cp-info">Speichert wirklich alles: Instrument, Klang, SW-Klänge, Tonart, Akkorde/Töne, Muster, Tempo, Hall, Pedal, Kreis, Spiegeln, Kamera, Kopfsteuerung …</span></div>
       <div class="ps-grid" id="psGrid"></div>
       <div class="cp-acts"><input id="psName" type="text" maxlength="30" placeholder="Name des Presets" aria-label="Name des Presets"></div>
       <div class="cp-acts"><button class="go" id="psSave">Speichern</button><button id="psLoad">Laden</button><button id="psDel">Löschen</button></div>
       <div class="cp-acts ps-io"><button id="psExport" title="Alle Presets als eine Datei sichern (Backup, Umzug zwischen PC und iPad)">⇓ Alle exportieren</button><button id="psImport" title="Eine gesicherte Preset-Datei wieder einspielen">⇑ Importieren</button><button class="go" id="psShare" hidden>Datei jetzt teilen</button><input type="file" id="psFile" accept=".json,application/json" hidden><button class="go" id="psDone">Fertig</button></div>
       <div class="cp-info" id="psInfo"></div>
+    </div>
+    <div class="chordpick presets" id="swPick" role="dialog" aria-label="SoundWhacker-Klänge" hidden>
+      <div class="cp-head"><strong>🔔 SoundWhacker-Klänge</strong><span class="cp-info">Jeder SoundWhacker kann ein eigenes Instrument spielen – Akkord bzw. Ton bleibt der seines Feldes.</span></div>
+      <div class="sw-grid" id="swGrid"></div>
+      <div class="cp-info" id="swInfo"></div>
+      <div class="cp-acts"><button id="swReset">Alle wie oben</button><button class="go" id="swDone">Fertig</button></div>
     </div>
     <video id="cam" playsinline muted autoplay hidden></video>
     <div class="headprev" id="headPrev" hidden><video id="headVid" playsinline muted></video></div>
@@ -554,7 +565,11 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
   }
   const sampleFor = (bank, midi) => inst().drums ? (bank[midi] ? midi : null) : nearestSample(bank, midi);
   const nearestSample = (bank, midi) => Object.keys(bank).map(Number).reduce((a, b) => Math.abs(b - midi) < Math.abs(a - midi) ? b : a);
-  const inst = () => INSTRUMENTS.find(i => i.id === S.inst);
+  // SoundWhacker können ein eigenes Instrument spielen: solange instOv gesetzt ist, gilt dieses statt S.inst
+  let instOv = null;
+  const curId = () => instOv || S.inst;
+  const inst = () => INSTRUMENTS.find(i => i.id === curId());
+  function withInst(id, fn) { const prev = instOv; instOv = id || null; try { return fn(); } finally { instOv = prev; } }
 
   const voices = [null, null, null, null, null, null];
   function killVoice(s, tau = .008, at = 0) {
@@ -566,7 +581,7 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
     try { v.src.stop(t + tau * 8); } catch (e) {}
   }
   function pluck(s, midi, bend = 0, vel = .85, delay = 0) {
-    const bank = banks[S.inst]; if (!bank) return null;
+    const bank = banks[curId()]; if (!bank) return null;
     if (ctx.state !== 'running') ctx.resume();
     killVoice(s, .008, ctx.currentTime + delay);
     const base = sampleFor(bank, midi); if (base === null) return null;
@@ -848,7 +863,7 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
       g.fillStyle = col ? inkOn(col) : on ? '#2a1610' : '#f3efe4';
       g.font = `600 ${Math.round(Math.min(G.pr * .62, 44))}px "Barlow Condensed", "Arial Narrow", sans-serif`;
       g.fillText(name, p.x, p.y);
-      if (i < 5) { g.font = '700 13px "Barlow Condensed", "Arial Narrow", sans-serif'; g.fillStyle = col ? inkOn(col) : on ? 'rgba(42,22,16,.7)' : swDown[i] ? '#f0a83a' : 'rgba(243,239,228,.5)'; g.fillText('SW' + (i + 1), p.x, p.y - G.pr * .55); }
+      if (i < 5) { g.font = '700 13px "Barlow Condensed", "Arial Narrow", sans-serif'; g.fillStyle = col ? inkOn(col) : on ? 'rgba(42,22,16,.7)' : swDown[i] ? '#f0a83a' : 'rgba(243,239,228,.5)'; g.fillText(swName(i), p.x, p.y - G.pr * .55); }
       if (on && PATTERNS[S.auto]) {                           // Taktpunkte unter dem Namen
         const pat = PATTERNS[S.auto], beats = pat.len / 4, cur = Math.floor(((P.step + pat.len - 1) % pat.len) / 4);
         for (let b = 0; b < beats; b++) { g.fillStyle = b === cur ? '#2a1610' : 'rgba(42,22,16,.3)'; g.beginPath(); g.arc(p.x + (b - (beats - 1) / 2) * 11, p.y + G.pr * .52, 3.2, 0, 7); g.fill(); }
@@ -885,7 +900,7 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
       g.fillStyle = col ? inkOn(col) : on ? '#2a1610' : '#f3efe4';
       g.font = `600 ${Math.round(Math.max(18, Math.min(q.w * .34, 46)))}px "Barlow Condensed", "Arial Narrow", sans-serif`;
       g.fillText(name, q.x + q.w / 2, q.y + Math.min(60, q.h * .16));
-      if (i < 5) { g.font = '700 13px "Barlow Condensed", "Arial Narrow", sans-serif'; g.fillStyle = col ? inkOn(col) : on ? 'rgba(42,22,16,.7)' : swDown[i] ? '#f0a83a' : 'rgba(243,239,228,.45)'; g.fillText('SW' + (i + 1), q.x + q.w / 2, q.y + Math.min(60, q.h * .16) + 30); }
+      if (i < 5) { g.font = '700 13px "Barlow Condensed", "Arial Narrow", sans-serif'; g.fillStyle = col ? inkOn(col) : on ? 'rgba(42,22,16,.7)' : swDown[i] ? '#f0a83a' : 'rgba(243,239,228,.45)'; g.fillText(swName(i), q.x + q.w / 2, q.y + Math.min(60, q.h * .16) + 30); }
       if (on && PATTERNS[S.auto]) {
         const pat = PATTERNS[S.auto], beats = pat.len / 4, cur = Math.floor(((P.step + pat.len - 1) % pat.len) / 4);
         for (let b = 0; b < beats; b++) { g.fillStyle = b === cur ? '#2a1610' : 'rgba(42,22,16,.3)'; g.beginPath(); g.arc(q.x + q.w / 2 + (b - (beats - 1) / 2) * 11, q.y + q.h - 24, 3.2, 0, 7); g.fill(); }
@@ -915,7 +930,7 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
       g.fillStyle = on ? '#2a1610' : '#f3efe4';
       g.font = `600 ${Math.max(17, Math.min(w * .27, 32))}px "Barlow Condensed", "Arial Narrow", sans-serif`;
       g.fillText(name, x + w / 2, L.head / 2 - (i < 5 ? 5 : 0));
-      if (i < 5) { g.font = '700 11px "Barlow Condensed", "Arial Narrow", sans-serif'; g.fillStyle = on ? 'rgba(42,22,16,.7)' : swDown[i] ? '#f0a83a' : 'rgba(243,239,228,.45)'; g.fillText('SW' + (i + 1), x + w / 2, L.head - 13); }
+      if (i < 5) { g.font = '700 11px "Barlow Condensed", "Arial Narrow", sans-serif'; g.fillStyle = on ? 'rgba(42,22,16,.7)' : swDown[i] ? '#f0a83a' : 'rgba(243,239,228,.45)'; g.fillText(swName(i), x + w / 2, L.head - 13); }
       if (wait) { g.strokeStyle = '#f0a83a'; g.lineWidth = 3; g.strokeRect(x + 3.5, 2, w - 7, L.head - 7); }
       g.font = '600 13px "Barlow Condensed", "Arial Narrow", sans-serif';
       if (piano() && isNote(name)) {                           // Einzelton: ein großes Feld
@@ -1041,21 +1056,21 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
     if (!P.on || !pat) return;
     while (P.t < ctx.currentTime + .12) {
       const i = P.step % pat.len;
-      if (i % 4 === 0 && P.next) { P.chord = P.next; P.next = null; }
-      pat.ev.filter(e => e[0] === i).forEach(e => playStep(e, pat, P.t));
+      if (i % 4 === 0 && P.next) { P.chord = P.next; P.inst = P.nextInst; P.next = null; }
+      withInst(P.inst, () => pat.ev.filter(e => e[0] === i).forEach(e => playStep(e, pat, P.t)));
       P.t += 60 / S.bpm / 4; P.step = (P.step + 1) % pat.len;
     }
     P.timer = setTimeout(tick, 25);
     wake();
   }
   function startAuto(name) {
-    if (P.on) { P.next = name === P.chord ? null : name; if (name === P.chord) stopAuto(); return; }
-    Object.assign(P, { on: true, chord: name, next: null, step: 0, t: ctx.currentTime + .04 });
+    if (P.on) { P.next = name === P.chord ? null : name; P.nextInst = instOv; if (name === P.chord) stopAuto(); return; }
+    Object.assign(P, { on: true, chord: name, inst: instOv, next: null, step: 0, t: ctx.currentTime + .04 });
     tick();
   }
   function autoTo(name) {                                     // ohne Umschalt-Logik: läuft schon → nur Akkord wechseln
     if (!P.on) { startAuto(name); return; }
-    if (name !== P.chord) { P.chord = name; P.next = null; }
+    if (name !== P.chord || P.inst !== instOv) { P.chord = name; P.inst = instOv; P.next = null; }
   }
   function stopAuto() {
     P.on = false; P.next = null; clearTimeout(P.timer);
@@ -1428,7 +1443,7 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
   const kvoices = new Map();
   const keyLit = new Map();                                   // Taste losgelassen: noch kurz gelb
   function playKey(midi, vel = .8, delay = 0) {
-    const bank = banks[S.inst]; if (!bank) return;
+    const bank = banks[curId()]; if (!bank) return;
     if (ctx.state !== 'running') ctx.resume();
     const t = ctx.currentTime + delay;
     const old = kvoices.get(midi); if (old) { old.gain.gain.cancelScheduledValues(t); old.gain.gain.setTargetAtTime(0, t, .02); try { old.src.stop(t + .15); } catch (e) {} }
@@ -1593,7 +1608,7 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
     S.family = f;
     S.inst = (f === 'piano' ? S.instP : S.instG) || (f === 'piano' ? 'piano' : 'steel');
     save(); renderInstruments(); circleSync(); applyMode(); layout();
-    boot();                                                    // neue Klänge im Hintergrund laden
+    boot(); swPreload(); swShow(false);                        // neue Klänge im Hintergrund laden
     try { history.replaceState(null, '', location.pathname + (f === 'piano' ? '?klavier' : '?gitarre')); } catch (e) {}
   }
   $('f-guitar').onclick = () => setFamily('guitar');
@@ -1688,7 +1703,7 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
     save(); renderChordPick(); layout(); wake();
   }
   const showPick = on => {
-    if (on) { $('presetPick').hidden = true; $('presetBtn').setAttribute('aria-expanded', false); }
+    if (on) { $('presetPick').hidden = true; $('presetBtn').setAttribute('aria-expanded', false); $('swPick').hidden = true; $('swBtn').setAttribute('aria-expanded', false); }
     $('chordPick').hidden = !on; $('chordEdit').setAttribute('aria-expanded', on); $('chordEdit').setAttribute('aria-pressed', on);
     $('cpMain').hidden = false; $('cpEdit').hidden = true;
     if (on) renderChordPick();
@@ -2218,7 +2233,55 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
   /* ---------- SoundWhacker: SW 1–5 (Bluetooth-Tastatur des SW-HUB, Tasten 1–5) ----------
      SW n spielt das n-te sichtbare Akkordfeld. Drücken = an, Loslassen = aus (bei Blas-/Streichinstrumenten und
      Klavier ohne Pedal). Mit Muster: Drücken startet bzw. wechselt, nochmal derselbe SW stoppt. */
-  const swDown = [false, false, false, false, false], swChord = [null, null, null, null, null];
+  const swDown = [false, false, false, false, false], swChord = [null, null, null, null, null], swInst = [null, null, null, null, null];
+  // Instrument je SoundWhacker (pro Gitarre/Klavier getrennt); leer = das oben gewählte. Noch nicht geladen: oben gewähltes.
+  function swInstFor(i) {
+    if (isDrums()) return null;
+    const id = ((S.swInst || {})[S.family] || [])[i];
+    const it = id && INSTRUMENTS.find(x => x.id === id && !x.drums);
+    if (!it || id === S.inst) return null;
+    if (!banks[id]) { loadBank(id).catch(() => {}); return null; }
+    return id;
+  }
+  function swName(i) { const id = ((S.swInst || {})[S.family] || [])[i]; const it = id && !isDrums() && id !== S.inst && INSTRUMENTS.find(x => x.id === id && !x.drums); return 'SW' + (i + 1) + (it ? ' · ' + it.name : ''); }
+  // Fenster „SW-Klänge“: je SoundWhacker ein Instrument wählen
+  function swShow(on) {
+    $('swPick').hidden = !on; $('swBtn').setAttribute('aria-expanded', on);
+    if (!on) return;
+    showPick(false); $('presetPick').hidden = true; $('presetBtn').setAttribute('aria-expanded', false);
+    const g = $('swGrid'); g.innerHTML = '';
+    const cur = INSTRUMENTS.find(x => x.id === S.inst);
+    for (let i = 0; i < 5; i++) {
+      const row = document.createElement('label'), sel = document.createElement('select');
+      row.innerHTML = '<b>SW' + (i + 1) + '</b>';
+      sel.add(new Option('wie oben (' + cur.name + ')', ''));
+      [['Gitarre', 'guitar'], ['Klavier & mehr', 'piano']].forEach(([lab, fam]) => {
+        const og = document.createElement('optgroup'); og.label = lab;
+        INSTRUMENTS.filter(x => x.fam === fam && !x.drums).forEach(x => og.append(new Option(x.name, x.id)));
+        sel.append(og);
+      });
+      const list = ((S.swInst || {})[S.family] || []);
+      sel.value = list[i] && list[i] !== S.inst ? list[i] : '';
+      sel.disabled = isDrums();
+      sel.onchange = () => {
+        S.swInst = S.swInst || {}; const a = (S.swInst[S.family] || ['', '', '', '', '']).slice(0, 5);
+        while (a.length < 5) a.push('');
+        a[i] = sel.value; S.swInst[S.family] = a; save(); layout(); wake();
+        if (sel.value && !banks[sel.value]) {
+          const o = sel.options[sel.selectedIndex], label = o.text; o.text = label + ' – lädt …';
+          loadBank(sel.value).catch(() => toast('Klang konnte nicht geladen werden – Internet nötig beim ersten Mal.')).finally(() => { o.text = label; });
+        }
+      };
+      row.append(sel); g.append(row);
+    }
+    $('swInfo').textContent = isDrums() ? 'Beim Schlagzeug spielen alle SW das Schlagzeug.' : '';
+  }
+  $('swBtn').onclick = () => swShow($('swPick').hidden);
+  $('swDone').onclick = () => swShow(false);
+  $('swReset').onclick = () => { if (S.swInst) delete S.swInst[S.family]; save(); layout(); wake(); swShow(true); };
+  // zugewiesene SW-Klänge im Hintergrund vorladen
+  function swPreload() { if (isDrums()) return; (((S.swInst || {})[S.family]) || []).forEach(id => { if (id && INSTRUMENTS.some(x => x.id === id)) loadBank(id).catch(() => {}); }); }
+  setTimeout(swPreload, 1500);
   const swId = e => { const m = /^(Digit|Numpad)([1-5])$/.exec(e.code || ''); return m ? +m[2] : 0; };
   const typingIn = el => el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable);
   function swSilence(chord, all) {
@@ -2237,16 +2300,19 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
       unlockAudio(); if (!banks[S.inst]) return;               // Klänge noch nicht da
       if (ctx.state !== 'running') ctx.resume();
       swDown[i] = true; swChord[i] = chord; lastChord = chord;
-      if (autoOn()) autoTo(chord);
-      else { flash[i] = performance.now() + 160; sounding(chord).forEach((st, n) => pick(st, .85, n * gap(), chord)); }
+      const id = swInstFor(i); swInst[i] = id;
+      withInst(id, () => {
+        if (autoOn()) autoTo(chord);
+        else { flash[i] = performance.now() + 160; sounding(chord).forEach((st, n) => pick(st, .85, n * gap(), chord)); }
+      });
     } else {
       if (!swDown[i]) return;
       swDown[i] = false;
-      const chord = swChord[i]; swChord[i] = null;
+      const chord = swChord[i], id = swInst[i]; swChord[i] = null; swInst[i] = null;
       // SoundWhacker: nur solange gehalten wird klingt es – loslassen = Akkord, Ton und Arpeggio sofort aus (auch mit Pedal)
       const held = swDown.map((d, k) => d ? swChord[k] : null).filter(Boolean);
       if (autoOn() && P.on) { if (held.length) autoTo(held[held.length - 1]); else stopAuto(); }
-      if (!isDrums() && chord && !held.includes(chord)) swSilence(chord, !held.length);
+      if (!isDrums() && chord && !held.includes(chord)) withInst(id, () => swSilence(chord, !held.length));
     }
     wake();
   }
@@ -2279,7 +2345,7 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
   }
   function psShow(on) {
     $('presetPick').hidden = !on; $('presetBtn').setAttribute('aria-expanded', on);
-    if (on) { showPick(false); const p = psAt(psSel); $('psName').value = p ? p.name : ''; psInfo(''); $('psShare').hidden = true; psRender(); }
+    if (on) { showPick(false); $('swPick').hidden = true; $('swBtn').setAttribute('aria-expanded', false); const p = psAt(psSel); $('psName').value = p ? p.name : ''; psInfo(''); $('psShare').hidden = true; psRender(); }
   }
   $('presetBtn').onclick = () => psShow($('presetPick').hidden);
   $('psDone').onclick = () => psShow(false);
@@ -2322,6 +2388,7 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
     micOn = extra.mic !== false; try { applyMic(); } catch (e) {}
     if (cam && !camStream) startCamera(); else if (!cam && camStream) stopCamera();
     if (extra.head && !HEAD.on && S.mode === 'smart') headStart();
+    swShow(false); swPreload();
   }
   // Export: eine JSON-Datei mit allen Presets (iPad: Teilen-Menü → „In Dateien sichern“)
   async function psExport() {
