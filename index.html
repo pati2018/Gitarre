@@ -2296,18 +2296,25 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
   // 🎲 Zufall: jeder SW-Druck spielt einen zufälligen Ton der eingestellten Skala (Felder mit Einzeltönen),
   // sonst der Tonleiter der Tonart (Oktave 4) – mit dem Instrument des SW, klingt solange gehalten
   const swRandMidi = [null, null, null, null, null];
-  function swPool() {
+  // Pool für 🎲: Felder mit Einzeltönen = die Skala; Felder mit Akkorden = nur die Töne des Akkords dieses SW
+  function swPool(i) {
     const list = strips(), out = [];
     list.forEach((n, k) => { const p = isNote(n) && parseChord(n); if (p) out.push([12 * (p.o + 1) + p.r, k]); });
     if (out.length >= 2) return out;
+    const chord = i >= 0 ? list[i] : null;
+    if (chord && !isNote(chord)) {
+      const ms = [...new Set(sounding(chord).map(st => noteOf(chord, st)).filter(m => m !== null && m !== undefined))];
+      if (ms.length) return ms.map(m => [m, -1]);
+    }
     const ki = KEY_INFO[KEYS[S.key] ? S.key : 'A-Moll'];
     return DEG[ki.mode].map(d => [60 + ki.root + d[0], -1]);
   }
+  const swLast = [null, null, null, null, null];
   function swRandom(i) {
-    const pool = swPool(), last = swPress.last;
+    const pool = swPool(i), last = swLast[i];
     let pickd = pool[Math.floor(Math.random() * pool.length)];
     if (pool.length > 1) while (pickd[0] === last) pickd = pool[Math.floor(Math.random() * pool.length)];
-    swPress.last = pickd[0]; swRandMidi[i] = pickd[0];
+    swLast[i] = pickd[0]; swRandMidi[i] = pickd[0];
     if (pickd[1] >= 0) flash[pickd[1]] = performance.now() + 260;
     playKey(pickd[0], .85);
   }
@@ -2349,7 +2356,7 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
       mx.onclick = e => { e.preventDefault(); if (!confirm('Melodie von SW' + (i + 1) + ' löschen?')) return; S.swMel[i] = []; save(); layout(); wake(); swShow(true); };
       row.append(sel, mb, mx); g.append(row);
     }
-    $('swInfo').textContent = isDrums() ? 'Beim Schlagzeug spielen alle SW das Schlagzeug.' : S.swRandom ? 'Zufall an: Jeder Druck spielt einen zufälligen Ton ' + (swPool()[0][1] >= 0 ? 'der Skala in den Feldern' : 'der Tonleiter ' + S.key) + ' – mit dem Instrument des SW.' : '';
+    $('swInfo').textContent = isDrums() ? 'Beim Schlagzeug spielen alle SW das Schlagzeug.' : S.swRandom ? 'Zufall an: Jeder Druck spielt einen zufälligen Ton ' + (swPool(-1)[0][1] >= 0 ? 'der Skala in den Feldern' : 'des Akkords im Feld des SW') + ' – mit dem Instrument des SW.' : '';
     $('swRand').textContent = '🎲 Zufall: ' + (S.swRandom ? 'an' : 'aus'); $('swRand').setAttribute('aria-pressed', !!S.swRandom);
   }
   $('swRand').onclick = () => { S.swRandom = !S.swRandom; save(); layout(); wake(); swShow(true); };
@@ -2537,7 +2544,7 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
   }
   if (S.menuHidden) setMenu(true);
 
-  window.__saitenzug = { ctx, voices, fingers, S, banks, P, KEYS, CHORDS, recType, HEAD, kvoices };
+  window.__saitenzug = { ctx, voices, fingers, S, banks, P, KEYS, CHORDS, recType, HEAD, kvoices, swLast };
 })();
 </script>
 
