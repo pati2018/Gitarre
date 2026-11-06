@@ -271,7 +271,7 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
       <div id="cpMain">
         <div class="cp-head"><strong id="cpTitle">Akkorde</strong><span class="cp-info" id="cpInfo"></span></div>
         <div class="cp-list" id="cpList"></div>
-        <div class="cp-acts"><button id="cpAll">Alle zeigen</button><button id="cpReset">↺ Leitereigene Akkorde</button><select id="cpScale" title="Alle 7 Plätze mit den Tönen einer Skala belegen (ab Oktave 4) – zum Improvisieren"></select><button class="go" id="cpDone">Fertig</button></div>
+        <div class="cp-acts"><button id="cpAll">Alle zeigen</button><button id="cpReset">↺ Leitereigene Akkorde</button><select id="cpScale" title="Alle 7 Plätze mit den Tönen einer Skala belegen (ab Oktave 4) – zum Improvisieren"></select><select id="cpCount" title="Wie viele Töne der Skala (Felder)"></select><button class="go" id="cpDone">Fertig</button></div>
       </div>
       <div id="cpEdit" hidden>
         <div class="cp-head"><strong>Platz <span id="cwSlot"></span>:</strong><span class="cw-name" id="cwName"></span></div>
@@ -709,7 +709,7 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
     const key = KEYS[S.key] ? S.key : 'A-Moll';
     const store = slotStore();
     let sl = store[key];
-    if (!Array.isArray(sl) || sl.length !== 7 || !sl.every(validSlot) || (isDrums() && !sl.every(x => x.q === 'note'))) {
+    if (!Array.isArray(sl) || sl.length < 1 || sl.length > 16 || (sl.length !== 7 && !sl.every(x => x.q === 'note')) || !sl.every(validSlot) || (isDrums() && !sl.every(x => x.q === 'note'))) {
       sl = defaultSlots(key);                                  // alte Einstellungen (ausgeblendet/Reihenfolge) übernehmen
       const names = KEYS[key], hide = (S.hidden && S.hidden[key]) || [], ord = ((S.order && S.order[key]) || []).filter(c => names.includes(c));
       if (ord.length) { const by = n => sl[names.indexOf(n)]; sl = [...ord.map(by), ...names.filter(n => !ord.includes(n)).map(by)]; }
@@ -1595,7 +1595,8 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
       $('cpList').append(chip);
     });
     $('cpInfo').textContent = S.key + ' · ' + vis + (vis === 1 ? ' Akkord' : ' Akkorde') + ' sichtbar · antippen = ändern · festhalten und ziehen = verschieben';
-    $('cpScale').hidden = !piano() || isDrums();
+    $('cpScale').hidden = $('cpCount').hidden = !piano() || isDrums();
+    $('cpCount').value = String(S.scaleCount || 7);
   }
   // Akkord festhalten und an eine andere Stelle ziehen (Finger oder Maus)
   let drag = null, dragJustEnded = false;
@@ -1658,20 +1659,29 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
   };
   $('chordEdit').onclick = () => showPick($('chordPick').hidden);
   $('cpDone').onclick = () => showPick(false);
-  $('cpReset').onclick = () => { saveSlots(defaultSlots(KEYS[S.key] ? S.key : 'A-Moll')); };
+  $('cpReset').onclick = () => { S.lastScale = null; saveSlots(defaultSlots(KEYS[S.key] ? S.key : 'A-Moll')); };
   // Klavier: alle 7 Plätze mit den Tönen einer Skala belegen (Grundton = Tonart), aufsteigend ab Oktave 4
   const TONE_SCALES = [
     ['key', 'Tonleiter der Tonart'], ['durp', 'Dur-Pentatonik', [0, 2, 4, 7, 9]], ['mollp', 'Moll-Pentatonik', [0, 3, 5, 7, 10]],
     ['blues', 'Blues', [0, 3, 5, 6, 7, 10]], ['hijaz', 'Arabisch (Hijaz)', [0, 1, 4, 5, 7, 8, 10]],
   ];
   $('cpScale').innerHTML = '<option value="">♪ Skala-Töne …</option>' + TONE_SCALES.map(t => `<option value="${t[0]}">${t[1]}</option>`).join('');
-  $('cpScale').onchange = () => {
-    const id = $('cpScale').value; $('cpScale').value = ''; if (!id) return;
-    const k = KEY_INFO[KEYS[S.key] ? S.key : 'A-Moll'], t = TONE_SCALES.find(x => x[0] === id);
-    const iv = id === 'key' ? DEG[k.mode].map(d => d[0]) : t[2], out = [];
-    for (let o = 0; out.length < 7; o++) iv.forEach(x => { if (out.length < 7) out.push([60 + k.root + x + 12 * o, x]); });
+  // Anzahl der Töne (Felder) für die Skala: 3–15, Standard 7
+  $('cpCount').innerHTML = Array.from({ length: 13 }, (_, k) => `<option value="${k + 3}">${k + 3} Töne</option>`).join('');
+  $('cpCount').value = String(S.scaleCount || 7);
+  function applyScale(id) {
+    const k = KEY_INFO[KEYS[S.key] ? S.key : 'A-Moll'], t = TONE_SCALES.find(x => x[0] === id); if (!t) return;
+    const n = S.scaleCount || 7, iv = id === 'key' ? DEG[k.mode].map(d => d[0]) : t[2], out = [];
+    const base = (n > 8 ? 48 : 60) + k.root;                 // viele Töne: eine Oktave tiefer anfangen
+    for (let o = 0; out.length < n; o++) iv.forEach(x => { if (out.length < n) out.push([base + x + 12 * o, x]); });
+    S.lastScale = id;
     // Schreibweise: kleine Sekunde/Terz/Sexte/Septime mit b (Des, Es, As, B), übermäßige Quarte mit # (Fis)
     saveSlots(out.map(([m, x]) => ({ r: m % 12, q: 'note', o: Math.floor(m / 12) - 1, on: true, ...( [1, 3, 8, 10].includes(x) ? { fl: 1 } : x === 6 ? { fl: 0 } : {}) })));
+  }
+  $('cpScale').onchange = () => { const id = $('cpScale').value; $('cpScale').value = ''; if (id) applyScale(id); };
+  $('cpCount').onchange = () => {
+    S.scaleCount = +$('cpCount').value; save();
+    if (S.lastScale && slots().every(x => x.q === 'note')) applyScale(S.lastScale);   // gerade eine Skala belegt: neu verteilen
   };
   $('cpAll').onclick = () => { saveSlots(slots().map(x => ({ ...x, on: true }))); };
 
