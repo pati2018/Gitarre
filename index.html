@@ -874,11 +874,13 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
   const autoOn = () => !!S.auto && !inst().noAuto && !(piano() && PATTERNS[S.auto] && PATTERNS[S.auto].kind === 'strum');   // Klavier: nur Arpeggio            // Melodie-Instrumente und Schlagzeug: ohne Rhythmus/Arpeggio
   // Klavier: pro Akkordplatz wählbar, welche der 6 Töne erklingen (mask)
   let previewMask = null;
+  const TRIAD = [0, 0, 0, 1, 1, 1];                            // Standard: die oberen drei Töne (Dreiklang)
+  const sameMask = (a, b) => a.every((v, i) => !!v === !!b[i]);
   function maskFor(c) {
     if (previewMask && previewMask.name === c) return previewMask.mask;
     if (!piano() || isDrums()) return null;
-    const x = slots().find(y => y.on && y.mask && slotName(y) === c) || slots().find(y => y.mask && slotName(y) === c);
-    return x ? x.mask : null;
+    const x = slots().find(y => y.on && slotName(y) === c) || slots().find(y => slotName(y) === c);
+    return x && x.q !== 'note' ? (x.mask || TRIAD) : null;
   }
   const noteOf = (c, s) => piano() ? (() => { const m = maskFor(c); return m && !m[s] ? null : pianoVoicing(c)[s]; })() : (CHORDS[c] && CHORDS[c][s] !== null ? TUNING[s] + CHORDS[c][s] : null);
   const sounding = c => [0, 1, 2, 3, 4, 5].filter(s => noteOf(c, s) !== null);
@@ -956,10 +958,10 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
       if (p.y < L.head || isNote(chord)) return;
       const st = stringAt(p.y), all = slots().map(x => ({ ...x }));
       const vis = all.filter(x => x.on).length ? all.filter(x => x.on) : all, slot = vis[i], k = all.indexOf(slot);
-      const m = slot.mask ? [...slot.mask] : [1, 1, 1, 1, 1, 1];
+      const m = slot.mask ? [...slot.mask] : [...TRIAD];
       m[st] = m[st] ? 0 : 1;
       if (!m.some(Boolean)) return;                            // mindestens ein Ton bleibt
-      all[k] = { ...slot, mask: m }; if (m.every(Boolean)) delete all[k].mask;
+      all[k] = { ...slot, mask: m }; if (sameMask(m, TRIAD)) delete all[k].mask;
       slotStore()[S.key] = all; save(); wake();
       if (m[st]) { const n = pianoVoicing(chord)[st]; if (n !== null) { pickChord[st] = chord; pluck(st, n, 0, .7); setTimeout(() => { if (pickChord[st] === chord) killVoice(st, .15); }, 450); } }
       return;
@@ -1498,7 +1500,7 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
   const wType = makeWheel($('wType'), i => { editQ = types()[i][0]; showEditName(); if (editQ === 'note') requestAnimationFrame(() => wOct.set(OCTS.indexOf(editO))); });
   const wOct = makeWheel($('wOct'), i => { editO = OCTS[i]; showEditName(); });
   function openWheel(i) {
-    const x = slots()[i]; editSlot = i; editR = x.r; editQ = x.q; editO = x.o || 4; editMask = x.mask ? [...x.mask] : [1, 1, 1, 1, 1, 1];
+    const x = slots()[i]; editSlot = i; editR = x.r; editQ = x.q; editO = x.o || 4; editMask = x.mask ? [...x.mask] : [...TRIAD];
     const info = KEY_INFO[S.key] || { flat: 0 };
     wRoot.fill((info.flat ? FLAT : SHARP).map((n, r) => (r === 5 && (S.key === 'Fis-Dur' || S.key === 'Dis-Moll')) ? 'Eis' : n));
     wType.fill(types().map(q => q[1]));
@@ -1512,7 +1514,7 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
     editR = wRoot.get(); editQ = types()[wType.get()][0]; editO = OCTS[wOct.get()] || editO;
     const sl = slots().map(x => ({ ...x })); sl[editSlot] = { ...sl[editSlot], r: editR, q: editQ };
     if (editQ === 'note') sl[editSlot].o = editO; else delete sl[editSlot].o;
-    if (piano() && !isDrums() && editQ !== 'note' && editMask.some(m => !m)) sl[editSlot].mask = [...editMask]; else delete sl[editSlot].mask;
+    if (piano() && !isDrums() && editQ !== 'note' && !sameMask(editMask, TRIAD)) sl[editSlot].mask = [...editMask]; else delete sl[editSlot].mask;
     $('cpEdit').hidden = true; $('cpMain').hidden = false; saveSlots(sl);
   };
   $('cwPlay').onclick = () => {
