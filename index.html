@@ -176,8 +176,8 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
 .plate.gone { display: none; }
 #menuHide { padding: 0 12px; }
 #menuShow {
-  position: absolute; z-index: 25; top: 0; left: 50%; transform: translateX(-50%);
-  height: 30px; padding: 0 16px; font-size: 15px; border-radius: 0 0 10px 10px; border: 0;
+  position: absolute; z-index: 25; top: 0; right: 0;
+  height: 30px; padding: 0 12px; font-size: 15px; border-radius: 0 0 0 10px; border: 0;
   background: rgba(140,194,174,.85); color: var(--rose); box-shadow: 0 3px 10px rgba(0,0,0,.3);
 }
 .stage.cam { background: #000; }
@@ -265,7 +265,7 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
     </div>
   </div>
   <div class="stage" id="stage">
-    <button id="menuShow" hidden title="Menü einblenden" aria-label="Menü einblenden">▼ Menü</button>
+    <button id="menuShow" hidden title="Menü einblenden" aria-label="Menü einblenden">▼</button>
     <div class="chordpick" id="chordPick" role="dialog" aria-label="Akkorde auswählen" hidden>
       <div id="cpMain">
         <div class="cp-head"><strong id="cpTitle">Akkorde</strong><span class="cp-info" id="cpInfo"></span></div>
