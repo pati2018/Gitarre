@@ -82,12 +82,14 @@ button:focus-visible, select:focus-visible { outline: 3px solid var(--rose); out
   padding-left: env(safe-area-inset-left, 0px); padding-right: env(safe-area-inset-right, 0px);
 }
 canvas { display: block; width: 100%; height: 100%; touch-action: none; }
+/* Kein „Losspielen“ mehr: nur ein kleiner Hinweis, solange die Klänge laden (bei Fehler antippbar) */
 #start {
-  position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
-  min-height: 64px; height: auto; max-width: 80%; padding: 8px 30px; font-size: 24px; letter-spacing: .02em;
-  background: var(--amber); color: var(--rose); border: 0; border-radius: 8px;
-  box-shadow: 0 6px 24px rgba(0,0,0,.45);
+  position: absolute; z-index: 30; left: 50%; top: 10px; transform: translateX(-50%);
+  height: auto; min-height: 36px; max-width: 90%; padding: 6px 16px; font-size: 16px;
+  background: rgba(42,22,16,.9); color: var(--pearl); border: 0; border-radius: 999px;
+  box-shadow: 0 4px 14px rgba(0,0,0,.35); pointer-events: none;
 }
+#start.err { pointer-events: auto; background: var(--amber); color: var(--rose); }
 .foot {
   background: var(--rose); color: var(--pearl); font-weight: 500; font-size: 15px; line-height: 1.25;
   padding-left: max(16px, env(safe-area-inset-left, 0px));
@@ -271,7 +273,7 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
         <button id="dropBtn">Verwerfen</button>
       </div>
     </div>
-    <button id="start" disabled>Klänge laden …</button>
+    <button id="start" hidden>Klänge laden …</button>
   </div>
   <div class="foot">
     <span id="hint"></span>
@@ -939,8 +941,8 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
 
   function pointerDown(e) {
     e.preventDefault();
-    if (ctx.state !== 'running') ctx.resume();
-    if (!$('start').hidden) return;
+    unlockAudio();
+    if (!banks[S.inst]) { toast('Klänge werden noch geladen …', 1500); return; }
     cv.setPointerCapture(e.pointerId);
     const p = pos(e);
     if (circleOn()) {                                          // Kreis: Akkord antippen
@@ -1393,12 +1395,7 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
     S.family = f;
     S.inst = (f === 'piano' ? S.instP : S.instG) || (f === 'piano' ? 'piano' : 'steel');
     save(); renderInstruments(); applyMode(); layout();
-    const b = $('start');
-    if (!banks[S.inst]) {                                     // neue Klänge laden, Spielen kurz sperren
-      b.hidden = false; b.disabled = true; b.textContent = 'Klänge laden …';
-      loadBank(S.inst).then(() => { if (audioUnlocked) b.hidden = true; else { b.textContent = 'Losspielen'; b.disabled = false; } })
-        .catch(() => { b.textContent = 'Klänge nicht geladen. Nochmal tippen.'; b.disabled = false; });
-    } else if (audioUnlocked) b.hidden = true;
+    boot();                                                    // neue Klänge im Hintergrund laden
     try { history.replaceState(null, '', location.pathname + (f === 'piano' ? '?klavier' : '?gitarre')); } catch (e) {}
   }
   $('f-guitar').onclick = () => setFamily('guitar');
@@ -1635,18 +1632,19 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
   cv.addEventListener('touchstart', stop, { passive: false });     // no magnifier or scroll on iPad
   cv.addEventListener('touchmove', stop, { passive: false });
   cv.addEventListener('contextmenu', stop);
-  document.addEventListener('visibilitychange', () => { if (document.hidden) { if (P.on) stopAuto(); } else if ($('start').hidden && ctx.state !== 'running') ctx.resume(); });
+  document.addEventListener('visibilitychange', () => { if (document.hidden) { if (P.on) stopAuto(); } else if (audioUnlocked && ctx.state !== 'running') ctx.resume(); });
 
+  // Ton freischalten beim ersten Tipp bzw. Tastendruck irgendwo (Browser erlauben Ton erst nach einer Berührung)
   let audioUnlocked = false;
-  $('start').onclick = () => {
-    ctx.resume();
-    if (!banks[S.inst]) { boot(); return; }
-    const b = ctx.createBufferSource(); b.buffer = ctx.createBuffer(1, 1, 22050); b.connect(ctx.destination); b.start(0);   // unlocks audio on iPad
-    $('start').hidden = true; audioUnlocked = true;
+  function unlockAudio() {
+    if (ctx.state !== 'running') ctx.resume();
+    if (audioUnlocked) return;
+    audioUnlocked = true;
+    try { const b = ctx.createBufferSource(); b.buffer = ctx.createBuffer(1, 1, 22050); b.connect(ctx.destination); b.start(0); } catch (e) {}   // iPad
     if (navigator.wakeLock) navigator.wakeLock.request('screen').catch(() => {});
-    const first = S.mode === 'smart' ? strips()[0] : S.chord;
-    [0, 1, 2, 3, 4, 5].forEach((s, i) => pick(s, .7, .05 + i * .03, first));    // first strum proves the sound works
-  };
+  }
+  ['pointerdown', 'touchend', 'click', 'keydown'].forEach(ev => document.addEventListener(ev, unlockAudio, { capture: true, passive: true }));
+  $('start').onclick = () => boot();
 
   /* ---------- Camera and recording ---------- */
   // With the camera on, the player fills the stage and the neck floats see-through on top.
@@ -1868,13 +1866,14 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
   layout();
   if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => { layout(); });
 
-  function boot() {
-    const b = $('start');
-    b.disabled = true; b.textContent = 'Klänge laden …';
-    loadBank(S.inst).then(() => { b.textContent = 'Losspielen'; b.disabled = false; })
+  function boot() {                                            // Klänge im Hintergrund laden, kleiner Hinweis oben
+    const b = $('start'), id = S.inst;
+    if (banks[id]) { b.hidden = true; return; }
+    b.classList.remove('err'); b.textContent = 'Klänge laden …'; b.hidden = false;
+    loadBank(id).then(() => { if (S.inst === id) b.hidden = true; })
       .catch(err => {
-        b.textContent = 'Klänge nicht geladen. Nochmal tippen. (' + ((err && (err.message || err.name)) || 'unbekannt') + ')';
-        b.disabled = false;
+        b.classList.add('err');
+        b.textContent = 'Klänge nicht geladen – antippen zum Wiederholen (' + ((err && (err.message || err.name)) || 'unbekannt') + ')';
       });
   }
   boot();
@@ -2000,7 +1999,7 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
     if (on) {
       if (swDown[i]) return;
       const chord = list[i]; if (!chord) return;
-      if (!$('start').hidden) return;                          // erst „Losspielen“
+      unlockAudio(); if (!banks[S.inst]) return;               // Klänge noch nicht da
       if (ctx.state !== 'running') ctx.resume();
       swDown[i] = true; swChord[i] = chord; lastChord = chord;
       if (autoOn()) startAuto(chord);
