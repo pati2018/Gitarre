@@ -309,7 +309,7 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
     </div>
     <div class="melbar" id="melBar" role="dialog" aria-label="Melodie aufnehmen" hidden>
       <div><strong id="melTitle"></strong><div class="mel-notes" id="melNotes"></div></div>
-      <div class="cp-acts"><button id="melUndo">↶ Letzten Ton löschen</button><button id="melCancel">✕ Abbrechen</button><button class="go" id="melOk">✓ Speichern</button></div>
+      <div class="cp-acts"><button id="melDrum" title="Tastatur zwischen Klavier und Schlagzeug (beschriftet) umschalten">🥁 Schlagzeug-Tasten</button><button id="melUndo">↶ Letzten Ton löschen</button><button id="melCancel">✕ Abbrechen</button><button class="go" id="melOk">✓ Speichern</button></div>
     </div>
     <video id="cam" playsinline muted autoplay hidden></video>
     <div class="headprev" id="headPrev" hidden><video id="headVid" playsinline muted></video></div>
@@ -2259,13 +2259,26 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
   const swMelPos = [0, 0, 0, 0, 0];
   let melRec = null;                                          // { i, notes, mode, family }
   const swMel = i => ((S.swMel || [])[i] || []).filter(Number.isFinite);
-  const midiName = m => noteName(((m % 12) + 12) % 12, Math.floor(m / 12) - 1, S.key);
+  const midiName = m => (melRec && melRec.drums && DRUMS[m]) || noteName(((m % 12) + 12) % 12, Math.floor(m / 12) - 1, S.key);
+  const swMelDrum = i => !!((S.swMelD || [])[i]);              // Schlagzeug-Melodie (Bass, Snare, …)
+  // Während der Aufnahme: Tastatur zwischen Klavier und beschrifteten Schlagzeug-Tasten umschalten
+  function melDrums(on) {
+    if (!melRec || !!melRec.drums === on) return;
+    if (melRec.notes.length && !confirm('Die bisher eingespielten ' + melRec.notes.length + ' Töne werden verworfen. Umschalten?')) return;
+    melRec.notes = [];
+    const id = on ? 'drums' : (melRec.inst && !INSTRUMENTS.find(x => x.id === melRec.inst).drums ? melRec.inst : 'piano');
+    loadBank(id).then(() => {
+      melRec.drums = on; S.inst = id; S.kbOct = on ? 2 : (melRec.kbOct && melRec.kbOct !== 2 ? melRec.kbOct : 4);
+      renderInstruments(); applyMode(); layout(); wake(); melBar();
+    }).catch(() => toast('Schlagzeug konnte nicht geladen werden – Internet nötig beim ersten Mal.'));
+  }
   function melBar() {
     const b = $('melBar'); b.hidden = !melRec; if (!melRec) return;
     const n = melRec.notes;
     $('melTitle').textContent = '● Melodie für SW' + (melRec.i + 1) + ': ' + n.length + (n.length === 1 ? ' Ton' : ' Töne');
     $('melNotes').textContent = n.length ? n.slice(-14).map(midiName).join(' · ') + (n.length > 14 ? ' …' : '') : 'Jetzt auf der Tastatur die Melodie spielen – Ton für Ton.';
     $('melUndo').disabled = !n.length; $('melOk').disabled = !n.length;
+    $('melDrum').textContent = melRec.drums ? '🎹 Klavier-Tasten' : '🥁 Schlagzeug-Tasten';
   }
   // Feld/Säule eines SW mit Melodie antippen = Melodie wieder auf Anfang (kein Ton)
   function melReset(i, t) {
@@ -2274,22 +2287,29 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
     toast('SW' + (i + 1) + ': Melodie wieder von vorn', 1300);
     return true;
   }
-  function melAdd(m) { if (melRec.notes.length < 400) melRec.notes.push(m); melBar(); }
+  function melAdd(m) { if (!melRec.notes.length) melRec.drums = isDrums(); if (melRec.notes.length < 400) melRec.notes.push(m); melBar(); }
   function melStart(i) {
     swShow(false);
     melRec = { i, notes: [], mode: S.mode, family: S.family };
     if (S.family !== 'piano') setFamily('piano');
     if (S.mode !== 'fret') setMode('fret');
+    Object.assign(melRec, { inst: S.inst, kbOct: S.kbOct, drums: isDrums() });
     melBar();
   }
   function melEnd(keep) {
     if (!melRec) return;
     const r = melRec; melRec = null; melBar();
-    if (keep && r.notes.length) { S.swMel = (S.swMel || []).slice(0, 5); while (S.swMel.length < 5) S.swMel.push([]); S.swMel[r.i] = r.notes; swMelPos[r.i] = 0; save(); toast('Melodie mit ' + r.notes.length + ' Tönen auf SW' + (r.i + 1) + ' gespeichert.'); }
+    if (keep && r.notes.length) {
+      S.swMel = (S.swMel || []).slice(0, 5); while (S.swMel.length < 5) S.swMel.push([]); S.swMel[r.i] = r.notes;
+      S.swMelD = (S.swMelD || []).slice(0, 5); while (S.swMelD.length < 5) S.swMelD.push(false); S.swMelD[r.i] = !!r.drums;
+      swMelPos[r.i] = 0; save(); toast((r.drums ? 'Schlagzeug-Melodie' : 'Melodie') + ' mit ' + r.notes.length + ' Tönen auf SW' + (r.i + 1) + ' gespeichert.');
+    }
+    if (S.inst !== r.inst) { S.inst = r.inst; S.kbOct = r.kbOct; renderInstruments(); applyMode(); save(); }
     if (r.family !== S.family) setFamily(r.family);
     if (r.mode !== S.mode) setMode(r.mode);
     layout(); wake(); swShow(true);
   }
+  $('melDrum').onclick = () => { if (melRec) melDrums(!melRec.drums); };
   $('melUndo').onclick = () => { if (melRec) { melRec.notes.pop(); melBar(); } };
   $('melOk').onclick = () => melEnd(true);
   $('melCancel').onclick = () => melEnd(false);
@@ -2318,7 +2338,7 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
     if (pickd[1] >= 0) flash[pickd[1]] = performance.now() + 260;
     playKey(pickd[0], .85);
   }
-  function swName(i) { const v = ((S.swInst || {})[S.family] || [])[i] || '', dm = /^drums:(\d+)$/.exec(v); if (dm && DRUMS[+dm[1]]) return 'SW' + (i + 1) + ' 🥁 ' + DRUMS[+dm[1]]; const id = v; const it = id && !isDrums() && id !== S.inst && INSTRUMENTS.find(x => x.id === id && !x.drums); return 'SW' + (i + 1) + (swMel(i).length ? ' 🎵' : S.swRandom && !isDrums() ? ' 🎲' : '') + (it ? ' · ' + it.name : ''); }
+  function swName(i) { const v = ((S.swInst || {})[S.family] || [])[i] || '', dm = /^drums:(\d+)$/.exec(v); if (dm && DRUMS[+dm[1]]) return 'SW' + (i + 1) + ' 🥁 ' + DRUMS[+dm[1]]; const id = v; const it = id && !isDrums() && id !== S.inst && INSTRUMENTS.find(x => x.id === id && !x.drums); return 'SW' + (i + 1) + (swMel(i).length ? (swMelDrum(i) ? ' 🎵🥁' : ' 🎵') : S.swRandom && !isDrums() ? ' 🎲' : '') + (it ? ' · ' + it.name : ''); }
   // Fenster „SW-Klänge“: je SoundWhacker ein Instrument wählen
   function swShow(on) {
     $('swPick').hidden = !on; $('swBtn').setAttribute('aria-expanded', on);
@@ -2353,12 +2373,12 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
         }
       };
       const mel = swMel(i), mb = document.createElement('button'), mx = document.createElement('button');
-      mb.className = 'sw-mel'; mb.textContent = mel.length ? '🎵 ' + mel.length + ' Töne' : '🎵 Melodie';
+      mb.className = 'sw-mel'; mb.textContent = mel.length ? (swMelDrum(i) ? '🥁 ' : '🎵 ') + mel.length + ' Töne' : '🎵 Melodie';
       mb.title = mel.length ? 'Neue Melodie für SW' + (i + 1) + ' einspielen' : 'Melodie für SW' + (i + 1) + ' auf der Klaviertastatur einspielen';
       mb.setAttribute('aria-pressed', mel.length > 0);
       mb.onclick = e => { e.preventDefault(); melStart(i); };
       mx.textContent = '✕'; mx.title = 'Melodie von SW' + (i + 1) + ' löschen'; mx.hidden = !mel.length;
-      mx.onclick = e => { e.preventDefault(); if (!confirm('Melodie von SW' + (i + 1) + ' löschen?')) return; S.swMel[i] = []; save(); layout(); wake(); swShow(true); };
+      mx.onclick = e => { e.preventDefault(); if (!confirm('Melodie von SW' + (i + 1) + ' löschen?')) return; S.swMel[i] = []; if (S.swMelD) S.swMelD[i] = false; save(); layout(); wake(); swShow(true); };
       row.append(sel, mb, mx); g.append(row);
     }
     $('swInfo').textContent = isDrums() ? 'Oben ist Schlagzeug gewählt: SW ohne eigenen Schlagzeug-Klang spielen ihr Feld.' : S.swRandom ? 'Zufall an: Jeder Druck spielt einen zufälligen Ton ' + (swPool(-1)[0][1] >= 0 ? 'der Skala in den Feldern' : 'des Akkords im Feld des SW') + ' – mit dem Instrument des SW.' : '';
@@ -2369,7 +2389,7 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
   $('swDone').onclick = () => swShow(false);
   $('swReset').onclick = () => { if (S.swInst) delete S.swInst[S.family]; save(); layout(); wake(); swShow(true); };
   // zugewiesene SW-Klänge im Hintergrund vorladen
-  function swPreload() { (((S.swInst || {})[S.family]) || []).forEach(v => { const id = (v || '').split(':')[0]; if (id && (id === 'drums' || !isDrums()) && INSTRUMENTS.some(x => x.id === id)) loadBank(id).catch(() => {}); }); }
+  function swPreload() { if ((S.swMelD || []).some(Boolean)) loadBank('drums').catch(() => {}); (((S.swInst || {})[S.family]) || []).forEach(v => { const id = (v || '').split(':')[0]; if (id && (id === 'drums' || !isDrums()) && INSTRUMENTS.some(x => x.id === id)) loadBank(id).catch(() => {}); }); }
   // 🥁 Schlagzeug-Klang je SW: Wert „drums:38“ = Snare usw. – spielt bei jedem Druck genau diesen Klang
   function swDrumFor(i) {
     const v = ((S.swInst || {})[S.family] || [])[i] || '', m = /^drums:(\d+)$/.exec(v);
@@ -2403,7 +2423,7 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
       const mel = swMel(i);
       if (mel.length) {                                        // 🎵 Melodie: jeder Druck = nächster Ton
         unlockAudio(); if (ctx.state !== 'running') ctx.resume();
-        const id = swInstFor(i), m = mel[swMelPos[i] % mel.length]; swMelPos[i] = (swMelPos[i] + 1) % mel.length;
+        const id = swMelDrum(i) ? 'drums' : swInstFor(i), m = mel[swMelPos[i] % mel.length]; swMelPos[i] = (swMelPos[i] + 1) % mel.length;
         if (!banks[id || S.inst]) return;
         swDown[i] = true; swInst[i] = id; swRandMidi[i] = m;
         withInst(id, () => playKey(m, .85)); keyLit.set(m, performance.now() + 300);
