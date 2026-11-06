@@ -2,7 +2,7 @@
    Die App (Seite, Schriften, Symbole) wird beim ersten Öffnen auf dem Gerät gespeichert.
    Seite: zuerst aus dem Netz (damit Updates sofort ankommen), ohne Netz aus dem Speicher.
    Alles andere: aus dem Speicher, sonst aus dem Netz. */
-const CACHE = 'saitenzug-v8';
+const CACHE = 'saitenzug-v9';
 const ASSETS = [
   './', 'manifest.webmanifest',
   'fonts/barlow-condensed-latin-500-normal.woff2', 'fonts/barlow-condensed-latin-600-normal.woff2',
