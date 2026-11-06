@@ -477,7 +477,7 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
   // Klavier startet beim ersten Mal mit Akkorden (C-Dur), Säulen, Einzeltönen und Boomwhacker-Farben.
   const VIEW_KEYS = ['mode', 'circle', 'pillars', 'pillarTones', 'bw'];
   const DEFAULT_VIEW = {
-    guitar: { mode: 'fret', circle: false, pillars: false, pillarTones: false, bw: false },
+    guitar: { mode: 'smart', circle: false, pillars: false, pillarTones: false, bw: false },
     piano: { mode: 'smart', circle: false, pillars: true, pillarTones: true, bw: true },
   };
   S.view = S.view || {};
