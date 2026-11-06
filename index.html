@@ -172,6 +172,14 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
 #psName { flex: 1; min-width: 0; height: 40px; font: inherit; font-size: 17px; padding: 0 10px; border-radius: 6px; border: 1.5px solid var(--rose-soft); background: #fff8; color: var(--rose); }
 .ps-io { border-top: 1px solid var(--foam-deep); padding-top: 8px; }
 #presetBtn[aria-expanded="true"] { background: var(--rose); color: var(--pearl); }
+.plate { transition: margin-top .25s ease; }
+.plate.gone { display: none; }
+#menuHide { padding: 0 12px; }
+#menuShow {
+  position: absolute; z-index: 25; top: 0; left: 50%; transform: translateX(-50%);
+  height: 30px; padding: 0 16px; font-size: 15px; border-radius: 0 0 10px 10px; border: 0;
+  background: rgba(140,194,174,.85); color: var(--rose); box-shadow: 0 3px 10px rgba(0,0,0,.3);
+}
 .stage.cam { background: #000; }
 .stage.cam canvas { position: relative; opacity: var(--see, .5); }
 .saved {
@@ -212,6 +220,7 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
         <button id="camera" aria-pressed="false">Kamera</button>
         <button id="mic" aria-pressed="false" hidden>Mikro</button>
         <button id="rec" aria-pressed="false">● Aufnahme</button>
+        <button id="menuHide" title="Menü ausblenden – mehr Platz zum Spielen" aria-label="Menü ausblenden">▲</button>
       </div>
     </div>
     <div class="row" id="rowFret">
@@ -256,6 +265,7 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
     </div>
   </div>
   <div class="stage" id="stage">
+    <button id="menuShow" hidden title="Menü einblenden" aria-label="Menü einblenden">▼ Menü</button>
     <div class="chordpick" id="chordPick" role="dialog" aria-label="Akkorde auswählen" hidden>
       <div id="cpMain">
         <div class="cp-head"><strong id="cpTitle">Akkorde</strong><span class="cp-info" id="cpInfo"></span></div>
@@ -729,7 +739,7 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
     return ss.map((b, k) => ({ ...b, y0: top + k * h, y1: top + (k + 1) * h }));
   }
   function pillarGeo() {
-    const n = strips().length, gap = Math.max(8, Math.min(16, W * .012)), w = (W - gap * (n + 1)) / n, top = 10, maxH = H - 20;
+    const n = strips().length, gap = Math.max(8, Math.min(16, W * .012)), w = (W - gap * (n + 1)) / n, top = S.menuHidden ? 36 : 10, maxH = H - top - 10;
     return Array.from({ length: n }, (_, i) => { const h = maxH; return { x: gap + i * (w + gap), y: top, w, h }; });
   }
   function circleGeo() {
@@ -2255,6 +2265,23 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
       psStore(); psRender(); psInfo(list.length + (list.length === 1 ? ' Preset' : ' Presets') + ' importiert.');
     } catch (e) { psInfo('Datei konnte nicht gelesen werden.', true); }
   };
+
+  /* Menü (grüne Leiste) ein- und ausblenden – mehr Platz zum Spielen */
+  function setMenu(hidden) {
+    document.querySelector('.plate').classList.toggle('gone', hidden);
+    $('menuShow').hidden = !hidden; S.menuHidden = hidden; save();
+    if (hidden) { showPick(false); psShow(false); }
+    requestAnimationFrame(() => { layout(); wake(); });
+  }
+  $('menuHide').onclick = () => setMenu(true);
+  $('menuShow').onclick = () => setMenu(false);
+  // Wischen: auf dem Menü nach oben = ausblenden, auf dem Knopf „▼ Menü“ nach unten = einblenden
+  { let y0 = null;
+    const plate = document.querySelector('.plate');
+    plate.addEventListener('touchstart', e => { y0 = e.touches[0].clientY; }, { passive: true });
+    plate.addEventListener('touchend', e => { if (y0 !== null && y0 - e.changedTouches[0].clientY > 50) setMenu(true); y0 = null; }, { passive: true });
+  }
+  if (S.menuHidden) setMenu(true);
 
   window.__saitenzug = { ctx, voices, fingers, S, banks, P, KEYS, CHORDS, recType, HEAD, kvoices };
 })();
