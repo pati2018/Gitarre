@@ -271,7 +271,7 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
       <div id="cpMain">
         <div class="cp-head"><strong id="cpTitle">Akkorde</strong><span class="cp-info" id="cpInfo"></span></div>
         <div class="cp-list" id="cpList"></div>
-        <div class="cp-acts"><button id="cpAll">Alle zeigen</button><button id="cpReset">↺ Leitereigene Akkorde</button><button id="cpScale" title="Alle 7 Plätze mit den Tönen der Tonleiter belegen (Oktave 4)">♪ Tonleiter-Töne</button><button class="go" id="cpDone">Fertig</button></div>
+        <div class="cp-acts"><button id="cpAll">Alle zeigen</button><button id="cpReset">↺ Leitereigene Akkorde</button><select id="cpScale" title="Alle 7 Plätze mit den Tönen einer Skala belegen (ab Oktave 4) – zum Improvisieren"></select><button class="go" id="cpDone">Fertig</button></div>
       </div>
       <div id="cpEdit" hidden>
         <div class="cp-head"><strong>Platz <span id="cwSlot"></span>:</strong><span class="cw-name" id="cwName"></span></div>
@@ -765,9 +765,9 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
     return i;
   }
   // Einzelton: Name mit Oktave, z. B. „C4“ oder „Fis3“
-  function noteName(r, o, key) {
+  function noteName(r, o, key, fl) {                        // fl: 1 = mit b schreiben, 0 = mit #, sonst wie die Tonart
     const info = KEY_INFO[key] || { flat: 0 };
-    let nm = (info.flat ? FLAT : SHARP)[r];
+    let nm = ((fl === 1 || fl === 0) ? (fl ? FLAT : SHARP) : (info.flat ? FLAT : SHARP))[r];
     if (r === 5 && (key === 'Fis-Dur' || key === 'Dis-Moll')) nm = 'Eis';
     const n = nm + o; CHORD_INFO[n] = { r, q: 'note', o }; return n;
   }
@@ -783,7 +783,7 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
     const m = 12 * (o + 1) + r, n = DRUMS[m] || noteName(r, o, S.key);
     CHORD_INFO[n] = { r, q: 'note', o }; return n;
   }
-  const slotName = x => x.q === 'note' ? (isDrums() ? drumName(x.r, x.o) : noteName(x.r, x.o, S.key)) : chordName(x.r, x.q, S.key);
+  const slotName = x => x.q === 'note' ? (isDrums() ? drumName(x.r, x.o) : noteName(x.r, x.o, S.key, x.fl)) : chordName(x.r, x.q, S.key);
   const isNote = name => { const i = parseChord(name); return !!(i && i.q === 'note'); };
   const allStrips = () => slots().map(slotName);
   const strips = () => { const sl = slots().filter(x => x.on); return (sl.length ? sl : slots()).map(slotName); };
@@ -1659,9 +1659,21 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
   $('chordEdit').onclick = () => showPick($('chordPick').hidden);
   $('cpDone').onclick = () => showPick(false);
   $('cpReset').onclick = () => { saveSlots(defaultSlots(KEYS[S.key] ? S.key : 'A-Moll')); };
-  $('cpScale').onclick = () => {                              // Klavier: die 7 Töne der Tonleiter aufsteigend
-    const k = KEY_INFO[KEYS[S.key] ? S.key : 'A-Moll'];
-    saveSlots(DEG[k.mode].map(([iv]) => { const m = 60 + k.root + iv; return { r: m % 12, q: 'note', o: Math.floor(m / 12) - 1, on: true }; }));
+  // Klavier: alle 7 Plätze mit den Tönen einer Skala belegen (Grundton = Tonart), aufsteigend ab Oktave 4
+  const TONE_SCALES = [
+    ['key', 'Tonleiter der Tonart'], ['dur', 'Dur', [0, 2, 4, 5, 7, 9, 11]], ['moll', 'Natürlich Moll', [0, 2, 3, 5, 7, 8, 10]],
+    ['durp', 'Dur-Pentatonik', [0, 2, 4, 7, 9]], ['mollp', 'Moll-Pentatonik', [0, 3, 5, 7, 10]], ['blues', 'Blues', [0, 3, 5, 6, 7, 10]],
+    ['hijaz', 'Arabisch (Hijaz)', [0, 1, 4, 5, 7, 8, 10]], ['harm', 'Harmonisch Moll', [0, 2, 3, 5, 7, 8, 11]],
+    ['dorisch', 'Dorisch', [0, 2, 3, 5, 7, 9, 10]], ['zigeuner', 'Zigeuner-Moll', [0, 2, 3, 6, 7, 8, 11]],
+  ];
+  $('cpScale').innerHTML = '<option value="">♪ Skala-Töne …</option>' + TONE_SCALES.map(t => `<option value="${t[0]}">${t[1]}</option>`).join('');
+  $('cpScale').onchange = () => {
+    const id = $('cpScale').value; $('cpScale').value = ''; if (!id) return;
+    const k = KEY_INFO[KEYS[S.key] ? S.key : 'A-Moll'], t = TONE_SCALES.find(x => x[0] === id);
+    const iv = id === 'key' ? DEG[k.mode].map(d => d[0]) : t[2], out = [];
+    for (let o = 0; out.length < 7; o++) iv.forEach(x => { if (out.length < 7) out.push([60 + k.root + x + 12 * o, x]); });
+    // Schreibweise: kleine Sekunde/Terz/Sexte/Septime mit b (Des, Es, As, B), übermäßige Quarte mit # (Fis)
+    saveSlots(out.map(([m, x]) => ({ r: m % 12, q: 'note', o: Math.floor(m / 12) - 1, on: true, ...( [1, 3, 8, 10].includes(x) ? { fl: 1 } : x === 6 ? { fl: 0 } : {}) })));
   };
   $('cpAll').onclick = () => { saveSlots(slots().map(x => ({ ...x, on: true }))); };
 
