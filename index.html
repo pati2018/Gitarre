@@ -164,6 +164,14 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
 .headstat { position: absolute; z-index: 16; left: 50%; bottom: 18px; transform: translateX(-50%); background: rgba(42,22,16,.9); color: var(--pearl); padding: 8px 14px; border-radius: 8px; font-size: 17px; pointer-events: none; white-space: nowrap; }
 #toneEdit[aria-pressed="true"] { background: var(--amber); color: var(--rose); border-color: var(--rose); }
 #headBtn[aria-pressed="true"] { background: var(--amber); color: var(--rose); border-color: var(--rose); }
+.presets { right: 10px; left: auto; width: min(560px, calc(100% - 20px)); max-height: calc(100% - 20px); overflow-y: auto; }
+.ps-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.ps-grid button { height: auto; min-height: 56px; padding: 6px; display: flex; flex-direction: column; align-items: center; justify-content: center; line-height: 1.1; }
+.ps-grid button small { font-size: 12px; opacity: .7; font-weight: 500; }
+.ps-grid button.empty { opacity: .55; border-style: dashed; }
+#psName { flex: 1; min-width: 0; height: 40px; font: inherit; font-size: 17px; padding: 0 10px; border-radius: 6px; border: 1.5px solid var(--rose-soft); background: #fff8; color: var(--rose); }
+.ps-io { border-top: 1px solid var(--foam-deep); padding-top: 8px; }
+#presetBtn[aria-expanded="true"] { background: var(--rose); color: var(--pearl); }
 .stage.cam { background: #000; }
 .stage.cam canvas { position: relative; opacity: var(--see, .5); }
 .saved {
@@ -200,6 +208,7 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
       <div class="group" role="group" aria-label="Einstellungen">
         <div class="knobwrap"><div class="knob sm" id="kVerb" role="slider" tabindex="0" aria-label="Hall"></div><span class="label">Hall</span></div>
         <button id="flip" aria-pressed="false">Spiegeln</button>
+        <button id="presetBtn" aria-expanded="false" title="Alle Einstellungen speichern und laden">💾 Presets</button>
         <button id="camera" aria-pressed="false">Kamera</button>
         <button id="mic" aria-pressed="false" hidden>Mikro</button>
         <button id="rec" aria-pressed="false">● Aufnahme</button>
@@ -259,6 +268,14 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
         </div>
         <div class="cp-acts"><button id="cwPlay">▶ Anhören</button><button id="cwBack">Abbrechen</button><button class="go" id="cwOk">Übernehmen</button></div>
       </div>
+    </div>
+    <div class="chordpick presets" id="presetPick" role="dialog" aria-label="Presets" hidden>
+      <div class="cp-head"><strong>💾 Presets</strong><span class="cp-info">Speichert wirklich alles: Instrument, Klang, Tonart, Akkorde/Töne, Muster, Tempo, Hall, Pedal, Kreis, Spiegeln, Kamera, Kopfsteuerung …</span></div>
+      <div class="ps-grid" id="psGrid"></div>
+      <div class="cp-acts"><input id="psName" type="text" maxlength="30" placeholder="Name des Presets" aria-label="Name des Presets"></div>
+      <div class="cp-acts"><button class="go" id="psSave">Speichern</button><button id="psLoad">Laden</button><button id="psDel">Löschen</button></div>
+      <div class="cp-acts ps-io"><button id="psExport" title="Alle Presets als eine Datei sichern (Backup, Umzug zwischen PC und iPad)">⇓ Alle exportieren</button><button id="psImport" title="Eine gesicherte Preset-Datei wieder einspielen">⇑ Importieren</button><button class="go" id="psShare" hidden>Datei jetzt teilen</button><input type="file" id="psFile" accept=".json,application/json" hidden><button class="go" id="psDone">Fertig</button></div>
+      <div class="cp-info" id="psInfo"></div>
     </div>
     <video id="cam" playsinline muted autoplay hidden></video>
     <div class="headprev" id="headPrev" hidden><video id="headVid" playsinline muted></video></div>
@@ -1502,6 +1519,7 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
     save(); renderChordPick(); layout(); wake();
   }
   const showPick = on => {
+    if (on) { $('presetPick').hidden = true; $('presetBtn').setAttribute('aria-expanded', false); }
     $('chordPick').hidden = !on; $('chordEdit').setAttribute('aria-expanded', on); $('chordEdit').setAttribute('aria-pressed', on);
     $('cpMain').hidden = false; $('cpEdit').hidden = true;
     if (on) renderChordPick();
@@ -2037,6 +2055,107 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
   });
   document.addEventListener('keyup', e => { const id = swId(e); if (id) swPress(id, false); });
   window.addEventListener('blur', () => { for (let id = 1; id <= 5; id++) swPress(id, false); });
+
+  /* ---------- Presets: 8 Plätze, speichern wirklich alle Einstellungen (S) plus Kamera an/aus ---------- */
+  const PS_KEY = 'saitenzug-presets', PS_N = 8;
+  let psList = [], psSel = 1, psPending = null;
+  try { psList = JSON.parse(localStorage.getItem(PS_KEY) || '[]').filter(p => p && p.slot >= 1 && p.slot <= PS_N && p.state); } catch (e) { psList = []; }
+  const psStore = () => { try { localStorage.setItem(PS_KEY, JSON.stringify(psList)); return true; } catch (e) { return false; } };
+  const psInfo = (m, err) => { $('psInfo').textContent = m || ''; $('psInfo').style.color = err ? '#8a1c10' : ''; };
+  const psAt = n => psList.find(p => p.slot === n);
+  function psRender() {
+    const g = $('psGrid'); g.innerHTML = '';
+    for (let n = 1; n <= PS_N; n++) {
+      const p = psAt(n), b = document.createElement('button');
+      b.className = p ? '' : 'empty'; b.setAttribute('aria-pressed', n === psSel);
+      b.innerHTML = p ? `${n} · ${p.name.replace(/[<&]/g, '')}<small>${p.state.family === 'piano' ? '🎹' : '🎸'} ${p.date || ''}</small>` : `${n}<small>leer</small>`;
+      b.onclick = () => { psSel = n; $('psName').value = p ? p.name : ''; psRender(); };
+      b.ondblclick = () => { psSel = n; psLoad(); };
+      g.append(b);
+    }
+  }
+  function psShow(on) {
+    $('presetPick').hidden = !on; $('presetBtn').setAttribute('aria-expanded', on);
+    if (on) { showPick(false); const p = psAt(psSel); $('psName').value = p ? p.name : ''; psInfo(''); $('psShare').hidden = true; psRender(); }
+  }
+  $('presetBtn').onclick = () => psShow($('presetPick').hidden);
+  $('psDone').onclick = () => psShow(false);
+  $('psSave').onclick = () => {
+    const name = ($('psName').value || '').trim() || ('Preset ' + psSel);
+    if (psAt(psSel) && !confirm('Preset ' + psSel + ' „' + psAt(psSel).name + '“ überschreiben?')) return;
+    const d = new Date();
+    psList = psList.filter(p => p.slot !== psSel).concat([{ slot: psSel, name, date: d.toLocaleDateString('de-DE'), cam: !!camStream, state: JSON.parse(JSON.stringify(S)) }]);
+    const ok = psStore(); psInfo(ok ? 'Gespeichert auf Platz ' + psSel + ': „' + name + '“.' : 'Speichern nicht möglich (Speicher voll?).', !ok); psRender();
+  };
+  function psLoad() {
+    const p = psAt(psSel); if (!p) { psInfo('Platz ' + psSel + ' ist leer.', true); return; }
+    applyState(p.state, p.cam); psInfo('Geladen: „' + p.name + '“.'); psRender();
+  }
+  $('psLoad').onclick = psLoad;
+  $('psDel').onclick = () => {
+    const p = psAt(psSel); if (!p) { psInfo('Platz ' + psSel + ' ist schon leer.'); return; }
+    if (!confirm('Preset ' + psSel + ' „' + p.name + '“ löschen?')) return;
+    psList = psList.filter(x => x.slot !== psSel); psStore(); $('psName').value = ''; psInfo('Gelöscht.'); psRender();
+  };
+  // Alles übernehmen und die Oberfläche neu aufbauen
+  function applyState(state, cam) {
+    if (P.on) stopAuto();
+    fingers.clear(); for (let k = 0; k < 6; k++) killVoice(k, .05);
+    kvoices.forEach(v => { try { v.src.stop(); } catch (e) {} }); kvoices.clear();
+    if (HEAD.on) headStop();
+    Object.keys(S).forEach(k => delete S[k]); Object.assign(S, JSON.parse(JSON.stringify(state)));
+    if (S.family !== 'piano') S.family = 'guitar';
+    if (!INSTRUMENTS.some(i => i.id === S.inst && i.fam === S.family)) S.inst = S.family === 'piano' ? 'piano' : 'steel';
+    if (!KEYS[S.key]) S.key = 'A-Moll';
+    if (S.auto && !PATTERNS[S.auto]) S.auto = '';
+    save();
+    $('key').value = S.key; $('root').value = S.root; $('scale').value = S.scale;
+    $('flip').setAttribute('aria-pressed', !!S.flip);
+    ['headDwell', 'headGain'].forEach(id => { $(id).value = String(S[id]); });
+    send.gain.setTargetAtTime(verbGain(S.verb || 0), ctx.currentTime, .03);
+    toneEdit = false; renderInstruments(); boot(); circleSync(); applyMode(); layout(); wake();
+    try { history.replaceState(null, '', location.pathname + (S.family === 'piano' ? '?klavier' : '?gitarre')); } catch (e) {}
+    if (cam && !camStream) startCamera(); else if (!cam && camStream) stopCamera();
+  }
+  // Export: eine JSON-Datei mit allen Presets (iPad: Teilen-Menü → „In Dateien sichern“)
+  async function psExport() {
+    $('psShare').hidden = true; psPending = null;
+    if (!psList.length) { psInfo('Es gibt noch keine gespeicherten Presets.', true); return; }
+    const d = new Date(), z = n => String(n).padStart(2, '0');
+    const name = 'Gitarre_Klavier_Presets_' + d.getFullYear() + z(d.getMonth() + 1) + z(d.getDate()) + '.json';
+    const text = JSON.stringify({ app: 'saitenzug', version: 1, presets: [...psList].sort((a, b) => a.slot - b.slot) }, null, 1);
+    const file = new File([text], name, { type: 'application/json' });
+    const msg = psList.length + (psList.length === 1 ? ' Preset' : ' Presets');
+    if (touchDevice && navigator.canShare && navigator.canShare({ files: [file] })) {
+      try { await navigator.share({ files: [file] }); psInfo(msg + ': „In Dateien sichern“ wählen.'); return; }
+      catch (e) { if (e && e.name === 'AbortError') return; psPending = file; $('psShare').hidden = false; psInfo(msg + ' sind bereit – bitte „Datei jetzt teilen“ tippen.'); return; }
+    }
+    if (window.showSaveFilePicker) {
+      try { const h = await showSaveFilePicker({ suggestedName: name, types: [{ description: 'Presets', accept: { 'application/json': ['.json'] } }] }); const w = await h.createWritable(); await w.write(file); await w.close(); psInfo(msg + ' gespeichert: ' + h.name); return; }
+      catch (e) { if (e && e.name === 'AbortError') return; }
+    }
+    const url = URL.createObjectURL(file), a = document.createElement('a'); a.href = url; a.download = name; document.body.append(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 4000); psInfo(msg + ' exportiert (Download-Ordner).');
+  }
+  $('psExport').onclick = psExport;
+  $('psShare').onclick = async () => {
+    if (!psPending) return;
+    try { await navigator.share({ files: [psPending] }); $('psShare').hidden = true; psPending = null; psInfo('„In Dateien sichern“ wählen.'); }
+    catch (e) { if (!(e && e.name === 'AbortError')) psInfo('Teilen nicht möglich: ' + ((e && e.message) || 'unbekannt'), true); }
+  };
+  $('psImport').onclick = () => { $('psFile').value = ''; $('psFile').click(); };
+  $('psFile').onchange = async () => {
+    const f = $('psFile').files[0]; if (!f) return;
+    try {
+      const data = JSON.parse(await f.text());
+      const list = ((data && data.presets) || []).filter(p => p && p.slot >= 1 && p.slot <= PS_N && p.state && typeof p.state === 'object');
+      if (!data || data.app !== 'saitenzug' || !list.length) { psInfo('Das ist keine Preset-Datei dieser App.', true); return; }
+      const clash = list.filter(p => psAt(p.slot)).length;
+      if (clash && !confirm(clash + ' belegte Plätze werden durch die Datei ersetzt. Weiter?')) return;
+      list.forEach(p => { psList = psList.filter(x => x.slot !== p.slot).concat([{ slot: p.slot, name: String(p.name || ('Preset ' + p.slot)).slice(0, 30), date: p.date || '', cam: !!p.cam, state: p.state }]); });
+      psStore(); psRender(); psInfo(list.length + (list.length === 1 ? ' Preset' : ' Presets') + ' importiert.');
+    } catch (e) { psInfo('Datei konnte nicht gelesen werden.', true); }
+  };
 
   window.__saitenzug = { ctx, voices, fingers, S, banks, P, KEYS, CHORDS, recType, HEAD, kvoices };
 })();
