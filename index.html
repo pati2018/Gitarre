@@ -1053,6 +1053,10 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
     Object.assign(P, { on: true, chord: name, next: null, step: 0, t: ctx.currentTime + .04 });
     tick();
   }
+  function autoTo(name) {                                     // ohne Umschalt-Logik: läuft schon → nur Akkord wechseln
+    if (!P.on) { startAuto(name); return; }
+    if (name !== P.chord) { P.chord = name; P.next = null; }
+  }
   function stopAuto() {
     P.on = false; P.next = null; clearTimeout(P.timer);
     for (let s = 0; s < 6; s++) if (voices[s]) killVoice(s, .12);
@@ -1446,9 +1450,9 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
     src.onended = () => { if (kvoices.get(midi) === v) kvoices.delete(midi); gain.disconnect(); wet.disconnect(); wake(); };
     kvoices.set(midi, v);
   }
-  function releaseKey(midi) {
-    if (inst().perc) return;                                   // Schlaginstrumente klingen von selbst aus
-    if (inst().pedal && S.ring) return;                        // Klavier mit Pedal: weiterklingen lassen
+  function releaseKey(midi, force) {
+    if (inst().perc && !force) return;                         // Schlaginstrumente klingen von selbst aus
+    if (inst().pedal && S.ring && !force) return;              // Klavier mit Pedal: weiterklingen lassen
     const v = kvoices.get(midi); if (!v) return;
     kvoices.delete(midi);
     v.gain.gain.cancelScheduledValues(ctx.currentTime); v.gain.gain.setTargetAtTime(0, ctx.currentTime, .09);
@@ -2217,6 +2221,14 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
   const swDown = [false, false, false, false, false], swChord = [null, null, null, null, null];
   const swId = e => { const m = /^(Digit|Numpad)([1-5])$/.exec(e.code || ''); return m ? +m[2] : 0; };
   const typingIn = el => el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable);
+  function swSilence(chord, all) {
+    const fade = inst().hold ? .06 : .09;
+    for (let st = 0; st < 6; st++) if (voices[st] && (all || pickChord[st] === chord)) killVoice(st, fade);
+    if (piano()) {
+      const notes = all ? [...kvoices.keys()] : sounding(chord).map(st => noteOf(chord, st)).filter(m => m !== null && m !== undefined);
+      notes.forEach(m => releaseKey(m, true));
+    }
+  }
   function swPress(id, on) {
     const i = id - 1, list = strips();
     if (on) {
@@ -2225,13 +2237,16 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
       unlockAudio(); if (!banks[S.inst]) return;               // Klänge noch nicht da
       if (ctx.state !== 'running') ctx.resume();
       swDown[i] = true; swChord[i] = chord; lastChord = chord;
-      if (autoOn()) startAuto(chord);
+      if (autoOn()) autoTo(chord);
       else { flash[i] = performance.now() + 160; sounding(chord).forEach((st, n) => pick(st, .85, n * gap(), chord)); }
     } else {
       if (!swDown[i]) return;
       swDown[i] = false;
       const chord = swChord[i]; swChord[i] = null;
-      if (!autoOn() && releaseOnUp() && chord) releaseStrings(sounding(chord), chord);
+      // SoundWhacker: nur solange gehalten wird klingt es – loslassen = Akkord, Ton und Arpeggio sofort aus (auch mit Pedal)
+      const held = swDown.map((d, k) => d ? swChord[k] : null).filter(Boolean);
+      if (autoOn() && P.on) { if (held.length) autoTo(held[held.length - 1]); else stopAuto(); }
+      if (!isDrums() && chord && !held.includes(chord)) swSilence(chord, !held.length);
     }
     wake();
   }
