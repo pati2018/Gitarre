@@ -160,6 +160,7 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
 .headprev { position: absolute; z-index: 15; left: 10px; bottom: 10px; width: 150px; aspect-ratio: 4 / 3; border: 2px solid var(--amber); border-radius: 10px; overflow: hidden; background: #000; pointer-events: none; }
 .headprev video { width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); display: block; }
 .headstat { position: absolute; z-index: 16; left: 50%; bottom: 18px; transform: translateX(-50%); background: rgba(42,22,16,.9); color: var(--pearl); padding: 8px 14px; border-radius: 8px; font-size: 17px; pointer-events: none; white-space: nowrap; }
+#toneEdit[aria-pressed="true"] { background: var(--amber); color: var(--rose); border-color: var(--rose); }
 #headBtn[aria-pressed="true"] { background: var(--amber); color: var(--rose); border-color: var(--rose); }
 .stage.cam { background: #000; }
 .stage.cam canvas { position: relative; opacity: var(--see, .5); }
@@ -219,6 +220,7 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
     <div class="row" id="rowSmart" hidden>
       <select id="key" aria-label="Tonart"></select>
       <button id="chordEdit" aria-expanded="false" title="Akkorde ein- oder ausblenden">✎ Akkorde</button>
+      <button id="toneEdit" aria-pressed="false" title="In der Leiste festlegen, welche Töne eines Akkords klingen">✎ Töne wählen</button>
       <button id="pedal2" aria-pressed="true" title="Pedal: Töne klingen nach dem Loslassen weiter">Pedal</button>
       <button id="circleBtn" aria-pressed="false" title="Akkorde im Kreis anordnen – gut für die Kopfsteuerung">◯ Kreis</button>
       <button id="headBtn" aria-pressed="false" title="Kopfsteuerung: die Nase führt einen Zeiger über die Akkorde">👃 Kopf</button>
@@ -867,6 +869,8 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
   // Loslassen beendet den Ton: Blas-/Streichinstrumente immer, Klavier/E-Piano nur ohne Pedal
   const releaseOnUp = () => piano() && (inst().hold || (inst().pedal && !S.ring));
   function releaseStrings(list, chord) { list.forEach(s => { if (voices[s] && (!chord || pickChord[s] === chord)) killVoice(s, inst().hold ? .06 : .09); }); }
+  let toneEdit = false;
+  const toneEditOn = () => toneEdit && piano() && !isDrums() && !S.circle;
   const autoOn = () => !!S.auto && !inst().noAuto && !(piano() && PATTERNS[S.auto] && PATTERNS[S.auto].kind === 'strum');   // Klavier: nur Arpeggio            // Melodie-Instrumente und Schlagzeug: ohne Rhythmus/Arpeggio
   // Klavier: pro Akkordplatz wählbar, welche der 6 Töne erklingen (mask)
   let previewMask = null;
@@ -945,6 +949,19 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
       if (autoOn()) { startAuto(chord); wake(); return; }
       flash[i] = e.timeStamp + 160; sounding(chord).forEach((s, n) => pick(s, .85, n * .012, chord)); wake();
       fingers.set(e.pointerId, { type: 'hold', chord, ss: sounding(chord) });
+      return;
+    }
+    if (S.mode === 'smart' && toneEditOn()) {                   // „Töne wählen“: Reihe antippen = Ton an/aus
+      const list = strips(), i = Math.max(0, Math.min(list.length - 1, Math.floor(p.x / (W / list.length)))), chord = list[i];
+      if (p.y < L.head || isNote(chord)) return;
+      const st = stringAt(p.y), all = slots().map(x => ({ ...x }));
+      const vis = all.filter(x => x.on).length ? all.filter(x => x.on) : all, slot = vis[i], k = all.indexOf(slot);
+      const m = slot.mask ? [...slot.mask] : [1, 1, 1, 1, 1, 1];
+      m[st] = m[st] ? 0 : 1;
+      if (!m.some(Boolean)) return;                            // mindestens ein Ton bleibt
+      all[k] = { ...slot, mask: m }; if (m.every(Boolean)) delete all[k].mask;
+      slotStore()[S.key] = all; save(); wake();
+      if (m[st]) { const n = pianoVoicing(chord)[st]; if (n !== null) { pickChord[st] = chord; pluck(st, n, 0, .7); setTimeout(() => { if (pickChord[st] === chord) killVoice(st, .15); }, 450); } }
       return;
     }
     if (S.mode === 'smart') {
@@ -1307,12 +1324,14 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
   function applyMode() {
     applyFamily();
     $('autos').hidden = !!inst().noAuto; if (!autoOn() && P.on) stopAuto();
+    $('toneEdit').hidden = !piano() || isDrums() || S.circle; if ($('toneEdit').hidden) toneEdit = false;
+    $('toneEdit').setAttribute('aria-pressed', toneEditOn()); $('toneEdit').textContent = toneEditOn() ? '✓ Töne wählen: fertig' : '✎ Töne wählen';
     $('kStrum').parentElement.hidden = piano();                // Klavier: kein Rhythmus-Regler
     if (piano() && S.auto && PATTERNS[S.auto] && PATTERNS[S.auto].kind === 'strum') { S.auto = ''; save(); }
     const smart = S.mode === 'smart';
     $('rowFret').hidden = smart; $('rowSmart').hidden = !smart;
     press($('modes'), $(smart ? 'm-smart' : 'm-fret'));
-    $('hint').textContent = !smart ? (piano() ? HINTS.keys : HINTS.fret) : inst().noAuto && !S.circle ? 'Feld antippen spielt den Ton (bzw. den Akkord). Unter „✎ Akkorde/Töne“ legst du fest, was auf den 7 Feldern liegt.' : piano() && !autoOn() && !S.circle ? HINTS.pstrip : autoOn() ? HINTS.auto : S.circle ? 'Akkord im Kreis antippen schlägt ihn an. Mit der Kopfsteuerung: aus der Mitte in Richtung des Akkords schauen.' : HINTS.strip;
+    $('hint').textContent = smart && toneEditOn() ? 'Töne wählen: Reihe antippen schaltet den Ton an oder aus (gestrichelt = aus). Die Auswahl wird sofort gespeichert. Zum Spielen wieder auf „fertig“ tippen.' : !smart ? (piano() ? HINTS.keys : HINTS.fret) : inst().noAuto && !S.circle ? 'Feld antippen spielt den Ton (bzw. den Akkord). Unter „✎ Akkorde/Töne“ legst du fest, was auf den 7 Feldern liegt.' : piano() && !autoOn() && !S.circle ? HINTS.pstrip : autoOn() ? HINTS.auto : S.circle ? 'Akkord im Kreis antippen schlägt ihn an. Mit der Kopfsteuerung: aus der Mitte in Richtung des Akkords schauen.' : HINTS.strip;
     $('bpmLabel').textContent = S.bpm + ' BPM';
     renderKnobs();
   }
@@ -1931,6 +1950,7 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
     el.onchange = () => { S[id] = +el.value; save(); };
   });
   $('headBtn').onclick = () => (HEAD.on ? headStop() : headStart());
+  $('toneEdit').onclick = () => { toneEdit = !toneEdit; if (toneEdit && P.on) stopAuto(); applyMode(); wake(); };
   const circleSync = () => $('circleBtn').setAttribute('aria-pressed', !!S.circle);
   $('circleBtn').onclick = () => { S.circle = !S.circle; HEAD.idx = -1; save(); circleSync(); applyMode(); layout(); wake(); };
   circleSync();
