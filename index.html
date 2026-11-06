@@ -215,6 +215,7 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
     <div class="row" id="rowSmart" hidden>
       <select id="key" aria-label="Tonart"></select>
       <button id="chordEdit" aria-expanded="false" title="Akkorde ein- oder ausblenden">✎ Akkorde</button>
+      <button id="pedal2" aria-pressed="true" title="Pedal: Töne klingen nach dem Loslassen weiter">Pedal</button>
       <button id="circleBtn" aria-pressed="false" title="Akkorde im Kreis anordnen – gut für die Kopfsteuerung">◯ Kreis</button>
       <button id="headBtn" aria-pressed="false" title="Kopfsteuerung: die Nase führt einen Zeiger über die Akkorde">👃 Kopf</button>
       <span class="group" id="headOpts" hidden>
@@ -1255,7 +1256,8 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
     const b = $(id); b.setAttribute('aria-pressed', S[key]);
     b.onclick = () => { S[key] = !S[key]; b.setAttribute('aria-pressed', S[key]); save(); after && after(); wake(); };
   };
-  toggle('ring', 'ring');
+  toggle('ring', 'ring', () => syncPedal());
+  $('pedal2').onclick = () => { S.ring = !S.ring; save(); syncPedal(); if (!S.ring) { kvoices.forEach((v, m) => releaseKey(m)); for (let s = 0; s < 6; s++) killVoice(s, .12); } };
   toggle('flip', 'flip', layout);
 
   const HINTS = {
@@ -1265,6 +1267,12 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
     strip: 'Akkordnamen antippen schlägt den Akkord an. Über die Saiten im Streifen wischen schlägt von Hand, eine Saite antippen zupft sie.',
     auto: 'Akkord antippen startet das Muster. Ein anderer Akkord wechselt auf dem nächsten Schlag. Denselben Akkord antippen stoppt.',
   };
+  function syncPedal() {                                     // Klavier: „Pedal: an/aus“ in beiden Leisten
+    const pf = piano();
+    $('ring').textContent = pf ? (S.ring ? 'Pedal: an' : 'Pedal: aus') : 'Ausklingen';
+    $('pedal2').textContent = S.ring ? 'Pedal: an' : 'Pedal: aus';
+    $('ring').setAttribute('aria-pressed', !!S.ring); $('pedal2').setAttribute('aria-pressed', !!S.ring);
+  }
   function applyFamily() {
     const pf = piano();
     $('badge').textContent = pf ? 'Tastenzug' : 'Saitenzug';
@@ -1274,8 +1282,9 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
     $('lStrum').textContent = pf ? 'Rhythmus' : 'Schlagen';
     $('lPick').textContent = pf ? 'Arpeggio' : 'Zupfen';
     $('kPick').setAttribute('aria-label', pf ? 'Arpeggio-Muster' : 'Zupfmuster');
-    $('ring').textContent = pf ? 'Pedal' : 'Ausklingen';
+    syncPedal();
     $('ring').hidden = pf && !inst().pedal;
+    $('pedal2').hidden = !(pf && inst().pedal); $('pedal2').setAttribute('aria-pressed', !!S.ring);
     $('chords').hidden = pf;
     $('chordEdit').textContent = pf ? '✎ Akkorde/Töne' : '✎ Akkorde';
     $('cpTitle').textContent = pf ? 'Akkorde/Töne' : 'Akkorde';
