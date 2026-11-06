@@ -250,7 +250,6 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
       </div>
       <div id="cpEdit" hidden>
         <div class="cp-head"><strong>Platz <span id="cwSlot"></span>:</strong><span class="cw-name" id="cwName"></span></div>
-        <div class="cp-tones" id="cpTones" hidden><span class="cp-info">Welche Töne sollen klingen? (antippen = an/aus)</span><div id="cpToneBtns"></div></div>
         <div class="cp-wheels">
           <div class="wheelbox"><div class="wheel" id="wRoot" aria-label="Grundton"></div><div class="w-band"></div></div>
           <div class="wheelbox"><div class="wheel wide" id="wType" aria-label="Akkordart"></div><div class="w-band"></div></div>
@@ -1526,18 +1525,7 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
   const OCTS = [1, 2, 3, 4, 5, 6, 7];
   const editName = () => editQ === 'note' ? (isDrums() ? drumName(editR, editO) : noteName(editR, editO, S.key)) : chordName(editR, editQ, S.key);
   let editMask = [1, 1, 1, 1, 1, 1];
-  function renderTones() {                                     // Klavier-Akkord: die 6 Töne zum An-/Abwählen (oben hoch)
-    const show = piano() && !isDrums() && editQ !== 'note';
-    $('cpTones').hidden = !show; if (!show) return;
-    const v = pianoVoicing(editName()), box = $('cpToneBtns'); box.innerHTML = '';
-    [5, 4, 3, 2, 1, 0].forEach(s => {
-      const b = document.createElement('button'), n = v[s];
-      b.textContent = n === null ? '–' : NOTE[n % 12] + (Math.floor(n / 12) - 1);
-      b.setAttribute('aria-pressed', !!editMask[s]);
-      b.onclick = () => { editMask[s] = editMask[s] ? 0 : 1; if (!editMask.some(Boolean)) editMask[s] = 1; renderTones(); };
-      box.append(b);
-    });
-  }
+  function renderTones() {}                                   // Töne wählt man direkt in der Leiste („✎ Töne wählen“)
   const showEditName = () => { $('cwName').textContent = editName(); $('octBox').hidden = editQ !== 'note'; renderTones(); };
   const wRoot = makeWheel($('wRoot'), i => { editR = i; showEditName(); });
   const wType = makeWheel($('wType'), i => { editQ = types()[i][0]; showEditName(); if (editQ === 'note') requestAnimationFrame(() => wOct.set(OCTS.indexOf(editO))); });
