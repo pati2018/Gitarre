@@ -1103,6 +1103,7 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
     if (pillarsOn()) {                                         // Säulen: Spalte antippen, seitlich gleiten
       const list = strips(), Q = pillarGeo();
       const i = Q.findIndex(q => p.x >= q.x - 6 && p.x <= q.x + q.w + 6); if (i < 0 || !list[i]) return;
+      if (melReset(i, e.timeStamp)) return;
       const chord = list[i]; lastChord = chord;
       if (autoOn()) { startAuto(chord); fingers.set(e.pointerId, { type: 'hold', chord, ss: [], i, glide: 'strip', auto: true }); wake(); return; }
       if (pillarTones() && p.y > Q[i].y + pillarHead(Q[i])) {   // einzelner Ton der Säule; senkrecht wischen = Arpeggio
@@ -1120,6 +1121,7 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
       let i = -1, bd = 1e9;
       G.pads.forEach((q, k) => { const d = Math.hypot(p.x - q.x, p.y - q.y); if (d < G.pr * 1.15 && d < bd) { bd = d; i = k; } });
       if (i < 0) return;
+      if (melReset(i, e.timeStamp)) return;
       const chord = list[i]; lastChord = chord;
       if (autoOn()) { startAuto(chord); fingers.set(e.pointerId, { type: 'hold', chord, ss: [], i, glide: 'circle', auto: true }); wake(); return; }
       flash[i] = e.timeStamp + 160; sounding(chord).forEach((s, n) => pick(s, .85, n * gap(), chord)); wake();
@@ -1141,6 +1143,7 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
     }
     if (S.mode === 'smart') {
       const list = strips(), i = Math.max(0, Math.min(list.length - 1, Math.floor(p.x / (W / list.length)))), chord = list[i];
+      if (melReset(i, e.timeStamp)) return;
       lastChord = chord;
       if (autoOn()) { startAuto(chord); fingers.set(e.pointerId, { type: 'hold', chord, ss: [], i, glide: 'strip', auto: true }); wake(); return; }
       flash[i] = e.timeStamp + 160;
@@ -2263,6 +2266,13 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
     $('melTitle').textContent = '● Melodie für SW' + (melRec.i + 1) + ': ' + n.length + (n.length === 1 ? ' Ton' : ' Töne');
     $('melNotes').textContent = n.length ? n.slice(-14).map(midiName).join(' · ') + (n.length > 14 ? ' …' : '') : 'Jetzt auf der Tastatur die Melodie spielen – Ton für Ton.';
     $('melUndo').disabled = !n.length; $('melOk').disabled = !n.length;
+  }
+  // Feld/Säule eines SW mit Melodie antippen = Melodie wieder auf Anfang (kein Ton)
+  function melReset(i, t) {
+    if (i >= 5 || !swMel(i).length) return false;
+    swMelPos[i] = 0; flash[i] = t + 300; wake();
+    toast('SW' + (i + 1) + ': Melodie wieder von vorn', 1300);
+    return true;
   }
   function melAdd(m) { if (melRec.notes.length < 400) melRec.notes.push(m); melBar(); }
   function melStart(i) {
