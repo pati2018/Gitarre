@@ -1661,10 +1661,8 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
   $('cpReset').onclick = () => { saveSlots(defaultSlots(KEYS[S.key] ? S.key : 'A-Moll')); };
   // Klavier: alle 7 Plätze mit den Tönen einer Skala belegen (Grundton = Tonart), aufsteigend ab Oktave 4
   const TONE_SCALES = [
-    ['key', 'Tonleiter der Tonart'], ['dur', 'Dur', [0, 2, 4, 5, 7, 9, 11]], ['moll', 'Natürlich Moll', [0, 2, 3, 5, 7, 8, 10]],
-    ['durp', 'Dur-Pentatonik', [0, 2, 4, 7, 9]], ['mollp', 'Moll-Pentatonik', [0, 3, 5, 7, 10]], ['blues', 'Blues', [0, 3, 5, 6, 7, 10]],
-    ['hijaz', 'Arabisch (Hijaz)', [0, 1, 4, 5, 7, 8, 10]], ['harm', 'Harmonisch Moll', [0, 2, 3, 5, 7, 8, 11]],
-    ['dorisch', 'Dorisch', [0, 2, 3, 5, 7, 9, 10]], ['zigeuner', 'Zigeuner-Moll', [0, 2, 3, 6, 7, 8, 11]],
+    ['key', 'Tonleiter der Tonart'], ['durp', 'Dur-Pentatonik', [0, 2, 4, 7, 9]], ['mollp', 'Moll-Pentatonik', [0, 3, 5, 7, 10]],
+    ['blues', 'Blues', [0, 3, 5, 6, 7, 10]], ['hijaz', 'Arabisch (Hijaz)', [0, 1, 4, 5, 7, 8, 10]],
   ];
   $('cpScale').innerHTML = '<option value="">♪ Skala-Töne …</option>' + TONE_SCALES.map(t => `<option value="${t[0]}">${t[1]}</option>`).join('');
   $('cpScale').onchange = () => {
