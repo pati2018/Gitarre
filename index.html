@@ -234,6 +234,7 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
       <button id="toneEdit" aria-pressed="false" title="In der Leiste festlegen, welche Töne eines Akkords klingen">✎ Töne wählen</button>
       <button id="pedal2" aria-pressed="true" title="Pedal: Töne klingen nach dem Loslassen weiter">Pedal</button>
       <button id="circleBtn" aria-pressed="false" title="Akkorde im Kreis anordnen – gut für die Kopfsteuerung">◯ Kreis</button>
+      <button id="pillarBtn" aria-pressed="false" title="Akkorde als große Säulen nebeneinander (wie eine Panflöte)">▮▮▮ Säulen</button>
       <button id="headBtn" aria-pressed="false" title="Kopfsteuerung: die Nase führt einen Zeiger über die Akkorde">👃 Kopf</button>
       <span class="group" id="headOpts" hidden>
         <button id="headCenter" title="Jetzige Kopfhaltung als Mitte nehmen">⌖ Mitte</button>
@@ -708,6 +709,11 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
   const HEAD = { on: false, seen: false, idx: -1, px: .5, py: .5, prog: 0 };   // Kopfsteuerung (unten)
   // Kreis-Anordnung: Akkorde rund um eine Mitte, der erste oben (12 Uhr), dann im Uhrzeigersinn
   const circleOn = () => S.mode === 'smart' && S.circle;
+  const pillarsOn = () => S.mode === 'smart' && S.pillars && !S.circle;     // Säulen wie eine Panflöte
+  function pillarGeo() {
+    const n = strips().length, gap = Math.max(8, Math.min(16, W * .012)), w = (W - gap * (n + 1)) / n, top = 10, maxH = H - 20;
+    return Array.from({ length: n }, (_, i) => { const h = maxH * (1 - .42 * (n > 1 ? i / (n - 1) : 0)); return { x: gap + i * (w + gap), y: top, w, h }; });
+  }
   function circleGeo() {
     const n = strips().length, cx = W / 2, cy = H / 2, m = Math.min(W, H);
     // Felder so groß wie möglich, ohne sich zu überlappen (Abstand zweier Nachbarn = 2·R·sin(π/n))
@@ -766,6 +772,7 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
       c.lineWidth = .6 + rnd() * 1.3;
       c.beginPath(); c.moveTo(x, y); c.lineTo(x + len, y + rnd() * 3 - 1.5); c.stroke();
     }
+    if (pillarsOn()) return;
     if (circleOn()) {
       const G = circleGeo();
       c.strokeStyle = 'rgba(243,239,228,.12)'; c.lineWidth = 2;
@@ -812,8 +819,39 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
       g.fillStyle = '#f0a83a'; g.beginPath(); g.arc(hx, hy, 7, 0, 7); g.fill();
     }
   }
+  function drawPillars(ts) {
+    const list = strips(), Q = pillarGeo();
+    g.textAlign = 'center'; g.textBaseline = 'middle';
+    list.forEach((name, i) => {
+      const q = Q[i], on = P.on && P.chord === name, wait = P.on && P.next === name, fl = flash[i] > ts || (i < 5 && swDown[i]);
+      const gr = g.createLinearGradient(q.x, 0, q.x + q.w, 0);
+      gr.addColorStop(0, on ? '#f7c56c' : fl ? '#6a3e2a' : '#2a1913'); gr.addColorStop(.5, on ? '#f0a83a' : fl ? '#5a3424' : '#1b0e0a'); gr.addColorStop(1, on ? '#c9862a' : fl ? '#4a2a1c' : '#120906');
+      g.fillStyle = gr; g.beginPath(); if (g.roundRect) g.roundRect(q.x, q.y, q.w, q.h, [10, 10, q.w / 2, q.w / 2]); else g.rect(q.x, q.y, q.w, q.h); g.fill();
+      g.lineWidth = 3; g.strokeStyle = on ? '#2a1610' : wait ? '#f0a83a' : 'rgba(243,239,228,.4)'; g.stroke();
+      g.fillStyle = on ? '#2a1610' : '#f3efe4';
+      g.font = `600 ${Math.round(Math.max(18, Math.min(q.w * .34, 46)))}px "Barlow Condensed", "Arial Narrow", sans-serif`;
+      g.fillText(name, q.x + q.w / 2, q.y + Math.min(60, q.h * .16));
+      if (i < 5) { g.font = '700 13px "Barlow Condensed", "Arial Narrow", sans-serif'; g.fillStyle = on ? 'rgba(42,22,16,.7)' : swDown[i] ? '#f0a83a' : 'rgba(243,239,228,.45)'; g.fillText('SW' + (i + 1), q.x + q.w / 2, q.y + Math.min(60, q.h * .16) + 30); }
+      if (on && PATTERNS[S.auto]) {
+        const pat = PATTERNS[S.auto], beats = pat.len / 4, cur = Math.floor(((P.step + pat.len - 1) % pat.len) / 4);
+        for (let b = 0; b < beats; b++) { g.fillStyle = b === cur ? '#2a1610' : 'rgba(42,22,16,.3)'; g.beginPath(); g.arc(q.x + q.w / 2 + (b - (beats - 1) / 2) * 11, q.y + q.h - 24, 3.2, 0, 7); g.fill(); }
+      }
+    });
+    if (HEAD.on && HEAD.seen) {
+      const i = HEAD.idx;
+      if (i >= 0 && i < list.length) {
+        const q = Q[i]; g.strokeStyle = '#f0a83a'; g.lineWidth = 5;
+        g.beginPath(); if (g.roundRect) g.roundRect(q.x - 4, q.y - 4, q.w + 8, q.h + 8, [12, 12, q.w / 2 + 4, q.w / 2 + 4]); else g.rect(q.x - 4, q.y - 4, q.w + 8, q.h + 8); g.stroke();
+        if (HEAD.prog < 1) { g.fillStyle = 'rgba(240,168,58,.85)'; g.fillRect(q.x + 8, q.y + q.h - 10, (q.w - 16) * HEAD.prog, 5); }
+      }
+      const px = HEAD.px * W, y = H * .5;
+      g.fillStyle = 'rgba(243,239,228,.18)'; g.beginPath(); g.arc(px, y, 20, 0, 7); g.fill();
+      g.fillStyle = '#f0a83a'; g.beginPath(); g.arc(px, y, 7, 0, 7); g.fill();
+    }
+  }
   function drawStrips(ts) {
     if (circleOn()) return drawCircle(ts);
+    if (pillarsOn()) return drawPillars(ts);
     const list = strips(), w = W / list.length;
     g.textAlign = 'center'; g.textBaseline = 'middle';
     list.forEach((name, i) => {
@@ -890,7 +928,7 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
   const releaseOnUp = () => piano() && (inst().hold || (inst().pedal && !S.ring));
   function releaseStrings(list, chord) { list.forEach(s => { if (voices[s] && (!chord || pickChord[s] === chord)) killVoice(s, inst().hold ? .06 : .09); }); }
   let toneEdit = false;
-  const toneEditOn = () => toneEdit && piano() && !isDrums() && !S.circle;
+  const toneEditOn = () => toneEdit && piano() && !isDrums() && !S.circle && !S.pillars;
   const gap = () => piano() ? .002 : .012;                    // Klavier: Akkord fast gleichzeitig, Gitarre: kurzer Anschlag
   const autoOn = () => !!S.auto && !inst().noAuto && !(piano() && PATTERNS[S.auto] && PATTERNS[S.auto].kind === 'strum');   // Klavier: nur Arpeggio            // Melodie-Instrumente und Schlagzeug: ohne Rhythmus/Arpeggio
   // Klavier: pro Akkordplatz wählbar, welche der 6 Töne erklingen (mask)
@@ -963,6 +1001,15 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
     if (!banks[S.inst]) { toast('Klänge werden noch geladen …', 1500); return; }
     cv.setPointerCapture(e.pointerId);
     const p = pos(e);
+    if (pillarsOn()) {                                         // Säulen: Spalte antippen, seitlich gleiten
+      const list = strips(), Q = pillarGeo();
+      const i = Q.findIndex(q => p.x >= q.x - 6 && p.x <= q.x + q.w + 6); if (i < 0 || !list[i]) return;
+      const chord = list[i]; lastChord = chord;
+      if (autoOn()) { startAuto(chord); fingers.set(e.pointerId, { type: 'hold', chord, ss: [], i, glide: 'strip', auto: true }); wake(); return; }
+      flash[i] = e.timeStamp + 160; sounding(chord).forEach((s, n) => pick(s, .85, n * gap(), chord)); wake();
+      fingers.set(e.pointerId, { type: 'hold', chord, ss: sounding(chord), i, glide: 'strip' });
+      return;
+    }
     if (circleOn()) {                                          // Kreis: Akkord antippen
       const G = circleGeo(), list = strips();
       let i = -1, bd = 1e9;
@@ -1122,7 +1169,7 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
     g.setTransform(DPR, 0, 0, DPR, 0, 0);
     let busy = fingers.size > 0;
     for (let s = 0; s < 6; s++) {
-      if (!circleOn() && !piano()) drawString(s);
+      if (!circleOn() && !pillarsOn() && !piano()) drawString(s);
       wobble[s] = wobble[s] < .01 ? 0 : wobble[s] * (voices[s] ? .975 : .9);
       if (wobble[s]) busy = true;
     }
@@ -1400,14 +1447,14 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
   function applyMode() {
     applyFamily();
     $('autos').hidden = !!inst().noAuto; if (!autoOn() && P.on) stopAuto();
-    $('toneEdit').hidden = !piano() || isDrums() || S.circle; if ($('toneEdit').hidden) toneEdit = false;
+    $('toneEdit').hidden = !piano() || isDrums() || S.circle || S.pillars; if ($('toneEdit').hidden) toneEdit = false;
     $('toneEdit').setAttribute('aria-pressed', toneEditOn()); $('toneEdit').textContent = toneEditOn() ? '✓ Töne wählen: fertig' : '✎ Töne wählen';
     $('kStrum').parentElement.hidden = piano();                // Klavier: kein Rhythmus-Regler
     if (piano() && S.auto && PATTERNS[S.auto] && PATTERNS[S.auto].kind === 'strum') { S.auto = ''; save(); }
     const smart = S.mode === 'smart';
     $('rowFret').hidden = smart; $('rowSmart').hidden = !smart;
     press($('modes'), $(smart ? 'm-smart' : 'm-fret'));
-    $('hint').textContent = smart && toneEditOn() ? 'Töne wählen: Reihe antippen schaltet den Ton an oder aus (gestrichelt = aus). Die Auswahl wird sofort gespeichert. Zum Spielen wieder auf „fertig“ tippen.' : !smart ? (piano() ? HINTS.keys : HINTS.fret) : inst().noAuto && !S.circle ? 'Feld antippen spielt den Ton (bzw. den Akkord). Unter „✎ Akkorde/Töne“ legst du fest, was auf den 7 Feldern liegt.' : piano() && !autoOn() && !S.circle ? HINTS.pstrip : autoOn() ? HINTS.auto : S.circle ? 'Akkord im Kreis antippen schlägt ihn an. Mit der Kopfsteuerung: aus der Mitte in Richtung des Akkords schauen.' : HINTS.strip;
+    $('hint').textContent = smart && pillarsOn() ? 'Säule antippen spielt den Akkord bzw. Ton. Mit dem Finger seitlich gleiten wechselt von Säule zu Säule.' : smart && toneEditOn() ? 'Töne wählen: Reihe antippen schaltet den Ton an oder aus (gestrichelt = aus). Die Auswahl wird sofort gespeichert. Zum Spielen wieder auf „fertig“ tippen.' : !smart ? (piano() ? HINTS.keys : HINTS.fret) : inst().noAuto && !S.circle ? 'Feld antippen spielt den Ton (bzw. den Akkord). Unter „✎ Akkorde/Töne“ legst du fest, was auf den 7 Feldern liegt.' : piano() && !autoOn() && !S.circle ? HINTS.pstrip : autoOn() ? HINTS.auto : S.circle ? 'Akkord im Kreis antippen schlägt ihn an. Mit der Kopfsteuerung: aus der Mitte in Richtung des Akkords schauen.' : HINTS.strip;
     $('bpmLabel').textContent = S.bpm + ' BPM';
     renderKnobs();
   }
@@ -2018,8 +2065,9 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
   });
   $('headBtn').onclick = () => (HEAD.on ? headStop() : headStart());
   $('toneEdit').onclick = () => { toneEdit = !toneEdit; if (toneEdit && P.on) stopAuto(); applyMode(); wake(); };
-  const circleSync = () => $('circleBtn').setAttribute('aria-pressed', !!S.circle);
-  $('circleBtn').onclick = () => { S.circle = !S.circle; HEAD.idx = -1; save(); circleSync(); applyMode(); layout(); wake(); };
+  const circleSync = () => { $('circleBtn').setAttribute('aria-pressed', !!S.circle); $('pillarBtn').setAttribute('aria-pressed', !!S.pillars && !S.circle); };
+  $('circleBtn').onclick = () => { S.circle = !S.circle; if (S.circle) S.pillars = false; HEAD.idx = -1; save(); circleSync(); applyMode(); layout(); wake(); };
+  $('pillarBtn').onclick = () => { S.pillars = !S.pillars; if (S.pillars) S.circle = false; HEAD.idx = -1; save(); circleSync(); applyMode(); layout(); wake(); };
   circleSync();
   $('headCenter').onclick = () => { HEAD.cx = null; };
 
