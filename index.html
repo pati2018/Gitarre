@@ -113,7 +113,11 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
 .cp-head { display: flex; gap: 12px; align-items: baseline; flex-wrap: wrap; font-size: 18px; }
 .cp-info { font-size: 14px; color: var(--rose-soft); }
 .cp-list { display: flex; flex-wrap: wrap; gap: 6px; }
-.cp-list button { min-width: 64px; font-size: 20px; }
+.cp-list { gap: 10px; }
+.cp-chip { display: flex; align-items: center; gap: 2px; padding: 3px; border-radius: 9px; background: rgba(255,255,255,.18); border: 1.5px solid var(--foam-deep); }
+.cp-chip .cp-name { min-width: 64px; font-size: 20px; }
+.cp-chip .cp-mv { width: 34px; padding: 0; font-size: 20px; border-color: transparent; }
+.cp-chip .cp-mv:disabled { visibility: hidden; }
 .cp-acts { display: flex; gap: 6px; flex-wrap: wrap; }
 .cp-acts .go { background: var(--rose); color: var(--pearl); margin-left: auto; }
 .stage.cam { background: #000; }
@@ -184,9 +188,9 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
   </div>
   <div class="stage" id="stage">
     <div class="chordpick" id="chordPick" role="dialog" aria-label="Akkorde auswählen" hidden>
-      <div class="cp-head"><strong>Welche Akkorde?</strong><span class="cp-info" id="cpInfo"></span></div>
+      <div class="cp-head"><strong>Welche Akkorde? In welcher Reihenfolge?</strong><span class="cp-info" id="cpInfo"></span></div>
       <div class="cp-list" id="cpList"></div>
-      <div class="cp-acts"><button id="cpAll">Alle</button><button id="cpPop">C · Am · F · G</button><button class="go" id="cpDone">Fertig</button></div>
+      <div class="cp-acts"><button id="cpAll">Alle</button><button id="cpPop">C · Am · F · G</button><button id="cpReset">↺ Reihenfolge</button><button class="go" id="cpDone">Fertig</button></div>
     </div>
     <video id="cam" playsinline muted autoplay hidden></video>
     <canvas id="neck" aria-label="Griffbrett mit sechs Saiten. Tippen spielt einen Ton, Ziehen verändert die Tonhöhe."></canvas>
@@ -522,7 +526,11 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
     c.fillText('ANSCHLAGEN', L.neckEnd + L.zone / 2, L.bottom + 13);
   }
 
-  const allStrips = () => KEYS[S.key] || KEYS['A-Moll'];
+  const keyChords = () => KEYS[S.key] || KEYS['A-Moll'];
+  const allStrips = () => {                                    // Akkorde der Tonart in der eigenen Reihenfolge
+    const base = keyChords(), ord = ((S.order && S.order[S.key]) || []).filter(c => base.includes(c));
+    return [...ord, ...base.filter(c => !ord.includes(c))];
+  };
   const strips = () => {                                       // nur die eingeblendeten Akkorde der Tonart
     const hide = (S.hidden && S.hidden[S.key]) || [], list = allStrips().filter(c => !hide.includes(c));
     return list.length ? list : allStrips();
@@ -874,16 +882,31 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
   function renderChordPick() {
     const all = allStrips(), hide = (S.hidden && S.hidden[S.key]) || [];
     $('cpList').innerHTML = '';
-    all.forEach(c => {
-      const b = document.createElement('button'); b.textContent = c; b.setAttribute('aria-pressed', !hide.includes(c));
+    all.forEach((c, i) => {
+      const chip = document.createElement('div'); chip.className = 'cp-chip';
+      const mv = (txt, d, label) => {
+        const m = document.createElement('button'); m.className = 'cp-mv'; m.textContent = txt; m.setAttribute('aria-label', c + ' ' + label);
+        // Ziel: der nächste sichtbare Akkord in dieser Richtung (ausgeblendete werden übersprungen)
+        let j = i + d;
+        if (!hide.includes(c)) while (j >= 0 && j < all.length && hide.includes(all[j])) j += d;
+        m.disabled = j < 0 || j >= all.length;
+        m.onclick = () => {
+          const o = allStrips(); o.splice(i, 1); o.splice(j, 0, c);
+          S.order = S.order || {}; S.order[S.key] = o; changedChords();
+        };
+        return m;
+      };
+      const b = document.createElement('button'); b.className = 'cp-name'; b.textContent = c; b.setAttribute('aria-pressed', !hide.includes(c));
       b.onclick = () => {
         S.hidden = S.hidden || {}; let h = S.hidden[S.key] || [];
         h = h.includes(c) ? h.filter(x => x !== c) : [...h, c];
         if (h.length >= all.length) return;                    // mindestens ein Akkord bleibt
         S.hidden[S.key] = h; changedChords();
       };
-      $('cpList').append(b);
+      chip.append(mv('‹', -1, 'nach links'), b, mv('›', 1, 'nach rechts'));
+      $('cpList').append(chip);
     });
+    $('cpReset').hidden = !(S.order && S.order[S.key]);
     const n = strips().length;
     $('cpInfo').textContent = S.key + ' – ' + n + (n === 1 ? ' Akkord' : ' Akkorde') + ' sichtbar';
     const pop = ['C', 'Am', 'F', 'G'];
@@ -896,6 +919,7 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
   const showPick = on => { $('chordPick').hidden = !on; $('chordEdit').setAttribute('aria-expanded', on); $('chordEdit').setAttribute('aria-pressed', on); if (on) renderChordPick(); };
   $('chordEdit').onclick = () => showPick($('chordPick').hidden);
   $('cpDone').onclick = () => showPick(false);
+  $('cpReset').onclick = () => { if (S.order) delete S.order[S.key]; changedChords(); };
   $('cpAll').onclick = () => { S.hidden = S.hidden || {}; delete S.hidden[S.key]; changedChords(); };
   $('cpPop').onclick = () => { S.hidden = S.hidden || {}; S.hidden[S.key] = allStrips().filter(c => !['C', 'Am', 'F', 'G'].includes(c)); changedChords(); };
   /* Drehregler: Position 0 = Aus, 1 … n = Muster. Tippen dreht eine Stufe weiter, Ziehen dreht frei. */
