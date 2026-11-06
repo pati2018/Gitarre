@@ -860,7 +860,7 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
   // Loslassen beendet den Ton: Blas-/Streichinstrumente immer, Klavier/E-Piano nur ohne Pedal
   const releaseOnUp = () => piano() && (inst().hold || (inst().pedal && !S.ring));
   function releaseStrings(list, chord) { list.forEach(s => { if (voices[s] && (!chord || pickChord[s] === chord)) killVoice(s, inst().hold ? .06 : .09); }); }
-  const autoOn = () => !!S.auto && !inst().noAuto;            // Melodie-Instrumente und Schlagzeug: ohne Rhythmus/Arpeggio
+  const autoOn = () => !!S.auto && !inst().noAuto && !(piano() && PATTERNS[S.auto] && PATTERNS[S.auto].kind === 'strum');   // Klavier: nur Arpeggio            // Melodie-Instrumente und Schlagzeug: ohne Rhythmus/Arpeggio
   const noteOf = (c, s) => piano() ? pianoVoicing(c)[s] : (CHORDS[c] && CHORDS[c][s] !== null ? TUNING[s] + CHORDS[c][s] : null);
   const sounding = c => [0, 1, 2, 3, 4, 5].filter(s => noteOf(c, s) !== null);
   function playStep(ev, pat, t) {
@@ -1283,7 +1283,9 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
   }
   function applyMode() {
     applyFamily();
-    $('autos').hidden = !!inst().noAuto; if (inst().noAuto && P.on) stopAuto();
+    $('autos').hidden = !!inst().noAuto; if (!autoOn() && P.on) stopAuto();
+    $('kStrum').parentElement.hidden = piano();                // Klavier: kein Rhythmus-Regler
+    if (piano() && S.auto && PATTERNS[S.auto] && PATTERNS[S.auto].kind === 'strum') { S.auto = ''; save(); }
     const smart = S.mode === 'smart';
     $('rowFret').hidden = smart; $('rowSmart').hidden = !smart;
     press($('modes'), $(smart ? 'm-smart' : 'm-fret'));
