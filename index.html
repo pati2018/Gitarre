@@ -130,7 +130,10 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
 .cp-wheels { display: flex; gap: 12px; }
 .wheelbox { position: relative; }
 .wheel { width: 110px; height: 156px; overflow-y: auto; scroll-snap-type: y mandatory; border-radius: 10px; background: var(--rose); color: var(--pearl); scrollbar-width: none; -webkit-overflow-scrolling: touch; }
-.wheel.wide { width: 130px; }
+.wheel.wide { width: 140px; }
+#wOct { width: 120px; }
+#wOct .w-item { font-size: 20px; }
+#wOct .w-item.sel { font-size: 22px; }
 .wheel::-webkit-scrollbar { display: none; }
 .w-pad { height: 52px; }
 .w-item { height: 52px; line-height: 52px; text-align: center; font-size: 24px; scroll-snap-align: center; opacity: .4; cursor: pointer; transition: opacity .1s; }
@@ -236,13 +239,14 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
       <div id="cpMain">
         <div class="cp-head"><strong>Akkorde</strong><span class="cp-info" id="cpInfo"></span></div>
         <div class="cp-list" id="cpList"></div>
-        <div class="cp-acts"><button id="cpAll">Alle zeigen</button><button id="cpPop">C · Am · F · G</button><button id="cpReset">↺ Wie Tonart</button><button class="go" id="cpDone">Fertig</button></div>
+        <div class="cp-acts"><button id="cpAll">Alle zeigen</button><button id="cpPop">C · Am · F · G</button><button id="cpReset">↺ Wie Tonart</button><button id="cpScale" title="Alle 7 Plätze mit den Tönen der Tonleiter belegen (Oktave 4)">♪ Tonleiter-Töne</button><button class="go" id="cpDone">Fertig</button></div>
       </div>
       <div id="cpEdit" hidden>
         <div class="cp-head"><strong>Platz <span id="cwSlot"></span>:</strong><span class="cw-name" id="cwName"></span></div>
         <div class="cp-wheels">
           <div class="wheelbox"><div class="wheel" id="wRoot" aria-label="Grundton"></div><div class="w-band"></div></div>
           <div class="wheelbox"><div class="wheel wide" id="wType" aria-label="Akkordart"></div><div class="w-band"></div></div>
+          <div class="wheelbox" id="octBox" hidden><div class="wheel" id="wOct" aria-label="Oktave"></div><div class="w-band"></div></div>
         </div>
         <div class="cp-acts"><button id="cwPlay">▶ Anhören</button><button id="cwBack">Abbrechen</button><button class="go" id="cwOk">Übernehmen</button></div>
       </div>
@@ -376,6 +380,7 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
   function parseChord(name) {
     if (CHORD_INFO[name]) return CHORD_INFO[name];
     const m = /^([A-H](?:is|es|s)?)(.*)$/.exec(name || ''); if (!m) return null;
+    if (/^[1-7]$/.test(m[2])) { const PC0 = { C: 0, Cis: 1, Des: 1, D: 2, Dis: 3, Es: 3, E: 4, Eis: 5, F: 5, Fis: 6, Ges: 6, G: 7, Gis: 8, As: 8, A: 9, Ais: 10, B: 10, H: 11 }; if (PC0[m[1]] === undefined) return null; return (CHORD_INFO[name] = { r: PC0[m[1]], q: 'note', o: +m[2] }); }
     const PC = { C: 0, Cis: 1, Des: 1, D: 2, Dis: 3, Es: 3, E: 4, Eis: 5, F: 5, Fis: 6, Ges: 6, G: 7, Gis: 8, As: 8, A: 9, Ais: 10, B: 10, H: 11 };
     const q = Object.keys(SUFFIX).find(k => SUFFIX[k] === m[2]);
     if (PC[m[1]] === undefined || !q) return null;
@@ -385,6 +390,7 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
   function pianoVoicing(name) {
     if (voicingCache[name]) return voicingCache[name];
     const info = parseChord(name); if (!info) return [null, null, null, null, null, null];
+    if (info.q === 'note') return (voicingCache[name] = [12 * (info.o + 1) + info.r, null, null, null, null, null]);
     const iv = IVALS[info.q], bass = 36 + info.r, alt = bass + iv[2];
     const tones = [];
     for (let o = 0; o < 4; o++) iv.forEach(i => tones.push(48 + info.r + i + 12 * o));
@@ -631,17 +637,20 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
 
   // Sieben Akkordplätze je Tonart: { r: Grundton 0–11, q: Akkordart, on: sichtbar }
   const defaultSlots = key => { const k = KEY_INFO[key]; return DEG[k.mode].map(([iv, q]) => ({ r: (k.root + iv) % 12, q, on: true })); };
+  // Gitarre und Klavier haben je eigene Plätze (beim Klavier sind auch Einzeltöne möglich)
+  const slotStore = () => piano() ? (S.pslots = S.pslots || {}) : (S.slots = S.slots || {});
+  const validSlot = x => x && x.r >= 0 && x.r < 12 && (SUFFIX[x.q] !== undefined || (x.q === 'note' && piano() && x.o >= 1 && x.o <= 7));
   function slots() {
     const key = KEYS[S.key] ? S.key : 'A-Moll';
-    S.slots = S.slots || {};
-    let sl = S.slots[key];
-    if (!Array.isArray(sl) || sl.length !== 7 || !sl.every(x => x && x.r >= 0 && x.r < 12 && SUFFIX[x.q] !== undefined)) {
+    const store = slotStore();
+    let sl = store[key];
+    if (!Array.isArray(sl) || sl.length !== 7 || !sl.every(validSlot)) {
       sl = defaultSlots(key);                                  // alte Einstellungen (ausgeblendet/Reihenfolge) übernehmen
       const names = KEYS[key], hide = (S.hidden && S.hidden[key]) || [], ord = ((S.order && S.order[key]) || []).filter(c => names.includes(c));
       if (ord.length) { const by = n => sl[names.indexOf(n)]; sl = [...ord.map(by), ...names.filter(n => !ord.includes(n)).map(by)]; }
       sl.forEach(x => { x.on = !hide.includes(chordName(x.r, x.q, key)); });
       if (!sl.some(x => x.on)) sl.forEach(x => { x.on = true; });
-      if (S.hidden || S.order) S.slots[key] = sl;
+      if (!piano() && (S.hidden || S.order)) store[key] = sl;
     }
     return sl;
   }
@@ -669,7 +678,15 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
     }
     return i;
   }
-  const slotName = x => chordName(x.r, x.q, S.key);
+  // Einzelton: Name mit Oktave, z. B. „C4“ oder „Fis3“
+  function noteName(r, o, key) {
+    const info = KEY_INFO[key] || { flat: 0 };
+    let nm = (info.flat ? FLAT : SHARP)[r];
+    if (r === 5 && (key === 'Fis-Dur' || key === 'Dis-Moll')) nm = 'Eis';
+    const n = nm + o; CHORD_INFO[n] = { r, q: 'note', o }; return n;
+  }
+  const slotName = x => x.q === 'note' ? noteName(x.r, x.o, S.key) : chordName(x.r, x.q, S.key);
+  const isNote = name => { const i = parseChord(name); return !!(i && i.q === 'note'); };
   const allStrips = () => slots().map(slotName);
   const strips = () => { const sl = slots().filter(x => x.on); return (sl.length ? sl : slots()).map(slotName); };
   function paintStrips() {
@@ -744,6 +761,15 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
       g.fillText(name, x + w / 2, L.head / 2);
       if (wait) { g.strokeStyle = '#f0a83a'; g.lineWidth = 3; g.strokeRect(x + 3.5, 2, w - 7, L.head - 7); }
       g.font = '600 13px "Barlow Condensed", "Arial Narrow", sans-serif';
+      if (piano() && isNote(name)) {                           // Einzelton: ein großes Feld
+        const act = wobble[0] > .06 && pickChord[0] === name;
+        g.fillStyle = act ? `rgba(240,168,58,${.3 + wobble[0] * .5})` : 'rgba(243,239,228,.1)';
+        g.beginPath(); if (g.roundRect) g.roundRect(x + 6, L.head + 8, w - 12, H - L.head - 16, 10); else g.rect(x + 6, L.head + 8, w - 12, H - L.head - 16); g.fill();
+        g.fillStyle = act ? '#f3efe4' : 'rgba(243,239,228,.6)';
+        g.font = `600 ${Math.max(16, Math.min(w * .2, 30))}px "Barlow Condensed", "Arial Narrow", sans-serif`;
+        g.fillText('Ton', x + w / 2, (L.head + H) / 2);
+        return;
+      }
       if (piano()) {                                           // Klavier: sechs Tonreihen (oben hoch, unten Bass)
         for (let s = 0; s < 6; s++) {
           const n = noteOf(name, s), y = stringY(s), act = wobble[s] > .06 && pickChord[s] === name;
@@ -799,7 +825,8 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
   function playStep(ev, pat, t) {
     const delay = Math.max(0, t - ctx.currentTime), c = P.chord;
     const hit = (s, vel, d, short) => {
-      const v = pluck(s, noteOf(c, s), 0, vel, d); pickChord[s] = c;
+      const n = noteOf(c, s); if (n === null || n === undefined) return null;
+      const v = pluck(s, n, 0, vel, d); pickChord[s] = c;
       if (v && short) v.gain.gain.setTargetAtTime(0, t + d - delay + .1, .025);
     };
     if (pat.kind === 'strum') {
@@ -868,7 +895,7 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
       lastChord = chord;
       if (S.auto) { startAuto(chord); wake(); return; }
       flash[i] = e.timeStamp + 160;
-      if (p.y < L.head) { sounding(chord).forEach((s, n) => pick(s, .85, n * .012, chord)); return; }
+      if (p.y < L.head || (piano() && isNote(chord))) { sounding(chord).forEach((s, n) => pick(s, .85, n * .012, chord)); return; }
       const s = stringAt(p.y);
       fingers.set(e.pointerId, { type: 'pick', chord, y: p.y, last: s, time: e.timeStamp });
       pick(s, .8, 0, chord);
@@ -1226,7 +1253,7 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
   $('key').onchange = e => { if (P.on) stopAuto(); S.key = e.target.value; save(); layout(); renderChordPick(); wake(); };
 
   /* Akkordplätze bearbeiten (pro Tonart gespeichert): Akkord wählen, Reihenfolge, ein-/ausblenden */
-  function saveSlots(sl) { S.slots = S.slots || {}; S.slots[S.key] = sl; changedChords(); }
+  function saveSlots(sl) { slotStore()[S.key] = sl; changedChords(); }
   function renderChordPick() {
     const sl = slots().map(x => ({ ...x })), vis = sl.filter(x => x.on).length;
     $('cpList').innerHTML = '';
@@ -1249,6 +1276,7 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
     $('cpInfo').textContent = S.key + ' · ' + vis + (vis === 1 ? ' Akkord' : ' Akkorde') + ' sichtbar · antippen = ändern · festhalten und ziehen = verschieben';
     const pop = ['C', 'Am', 'F', 'G'], names = sl.map(slotName);
     $('cpPop').hidden = !pop.every(c => names.includes(c));
+    $('cpScale').hidden = !piano();
   }
   // Akkord festhalten und an eine andere Stelle ziehen (Finger oder Maus)
   let drag = null, dragJustEnded = false;
@@ -1311,6 +1339,10 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
   $('chordEdit').onclick = () => showPick($('chordPick').hidden);
   $('cpDone').onclick = () => showPick(false);
   $('cpReset').onclick = () => { saveSlots(defaultSlots(KEYS[S.key] ? S.key : 'A-Moll')); };
+  $('cpScale').onclick = () => {                              // Klavier: die 7 Töne der Tonleiter aufsteigend
+    const k = KEY_INFO[KEYS[S.key] ? S.key : 'A-Moll'];
+    saveSlots(DEG[k.mode].map(([iv]) => { const m = 60 + k.root + iv; return { r: m % 12, q: 'note', o: Math.floor(m / 12) - 1, on: true }; }));
+  };
   $('cpAll').onclick = () => { saveSlots(slots().map(x => ({ ...x, on: true }))); };
   $('cpPop').onclick = () => { saveSlots(slots().map(x => ({ ...x, on: ['C', 'Am', 'F', 'G'].includes(slotName(x)) }))); };
 
@@ -1328,28 +1360,36 @@ canvas { display: block; width: 100%; height: 100%; touch-action: none; }
       get: cur,
     };
   }
-  let editSlot = -1, editR = 0, editQ = 'maj';
-  const showEditName = () => { $('cwName').textContent = chordName(editR, editQ, S.key); };
+  let editSlot = -1, editR = 0, editQ = 'maj', editO = 4;
+  // Klavier: zusätzlich „Einzelton“ – dann erscheint das dritte Rad für die Oktave
+  const types = () => piano() ? [...QUALS, ['note', 'Einzelton']] : QUALS;
+  const OCTS = [1, 2, 3, 4, 5, 6, 7];
+  const editName = () => editQ === 'note' ? noteName(editR, editO, S.key) : chordName(editR, editQ, S.key);
+  const showEditName = () => { $('cwName').textContent = editName(); $('octBox').hidden = editQ !== 'note'; };
   const wRoot = makeWheel($('wRoot'), i => { editR = i; showEditName(); });
-  const wType = makeWheel($('wType'), i => { editQ = QUALS[i][0]; showEditName(); });
+  const wType = makeWheel($('wType'), i => { editQ = types()[i][0]; showEditName(); if (editQ === 'note') requestAnimationFrame(() => wOct.set(OCTS.indexOf(editO))); });
+  const wOct = makeWheel($('wOct'), i => { editO = OCTS[i]; showEditName(); });
   function openWheel(i) {
-    const x = slots()[i]; editSlot = i; editR = x.r; editQ = x.q;
+    const x = slots()[i]; editSlot = i; editR = x.r; editQ = x.q; editO = x.o || 4;
     const info = KEY_INFO[S.key] || { flat: 0 };
     wRoot.fill((info.flat ? FLAT : SHARP).map((n, r) => (r === 5 && (S.key === 'Fis-Dur' || S.key === 'Dis-Moll')) ? 'Eis' : n));
-    wType.fill(QUALS.map(q => q[1]));
+    wType.fill(types().map(q => q[1]));
+    wOct.fill(OCTS.map(o => 'Oktave ' + o));
     $('cpMain').hidden = true; $('cpEdit').hidden = false; $('cwSlot').textContent = i + 1;
-    requestAnimationFrame(() => { wRoot.set(editR); wType.set(QUALS.findIndex(q => q[0] === editQ)); });
     showEditName();
+    requestAnimationFrame(() => { wRoot.set(editR); wType.set(types().findIndex(q => q[0] === editQ)); wOct.set(OCTS.indexOf(editO)); });
   }
   $('cwBack').onclick = () => { $('cpEdit').hidden = true; $('cpMain').hidden = false; };
   $('cwOk').onclick = () => {
-    editR = wRoot.get(); editQ = QUALS[wType.get()][0];
+    editR = wRoot.get(); editQ = types()[wType.get()][0]; editO = OCTS[wOct.get()] || editO;
     const sl = slots().map(x => ({ ...x })); sl[editSlot] = { ...sl[editSlot], r: editR, q: editQ };
+    if (editQ === 'note') sl[editSlot].o = editO; else delete sl[editSlot].o;
     $('cpEdit').hidden = true; $('cpMain').hidden = false; saveSlots(sl);
   };
   $('cwPlay').onclick = () => {
     if (ctx.state !== 'running') ctx.resume();
-    const c = chordName(wRoot.get(), QUALS[wType.get()][0], S.key);
+    editR = wRoot.get(); editQ = types()[wType.get()][0]; if (editQ === 'note') editO = OCTS[wOct.get()] || editO;
+    const c = editName();
     sounding(c).forEach((st, n) => pick(st, .85, n * .025, c));
   };
   /* Drehregler: Position 0 = Aus, 1 … n = Muster. Tippen dreht eine Stufe weiter, Ziehen dreht frei. */
