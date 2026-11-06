@@ -2,12 +2,12 @@
    Die App (Seite, Schriften, Symbole) wird beim ersten Öffnen auf dem Gerät gespeichert.
    Seite: zuerst aus dem Netz (damit Updates sofort ankommen), ohne Netz aus dem Speicher.
    Alles andere: aus dem Speicher, sonst aus dem Netz. */
-const CACHE = 'saitenzug-v5';
+const CACHE = 'saitenzug-v6';
 const ASSETS = [
   './', 'manifest.webmanifest',
   'fonts/barlow-condensed-latin-500-normal.woff2', 'fonts/barlow-condensed-latin-600-normal.woff2',
   'fonts/barlow-condensed-latin-700-normal.woff2', 'fonts/yellowtail-latin-400-normal.woff2',
-  'icons/icon-192.png', 'icons/icon-512.png', 'icons/apple-touch-icon.png',
+  'icons/si-192.png', 'icons/si-512.png', 'icons/si-touch-180.png',
 ];
 
 self.addEventListener('install', e => {
