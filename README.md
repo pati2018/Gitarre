@@ -14,5 +14,5 @@ Schriften (im Ordner `fonts/`): Barlow Condensed (SIL Open Font License 1.1), Ye
 
 Kopfsteuerung (Modus „Akkorde“, Knopf „👃 Kopf“): Die Nase führt über die Kamera einen Zeiger über die Akkordfelder. Gesichtserkennung mit Google MediaPipe Tasks Vision 0.10.14 (`vendor/mediapipe/`) und dem Modell `models/face_landmarker.task` (float16/1), beide Apache-2.0 (`licenses/Apache-2.0.txt`). Alles läuft auf dem Gerät, kein Bild verlässt es.
 
-Weitere Klänge des Smart-Klaviers (Ordner `banks/`: Schlagzeug, Flöte, Klarinette, Saxophon, Glockenspiel, Marimba, Violine, Cello, Streicher, Pizzicato): mit FluidSynth aus der SoundFont von MIGA gerendert – GeneralUser GS v2.0 von S. Christian Collins, Lizenz `licenses/GeneralUser-GS-LICENSE.txt`.
+Weitere Klänge des Smart-Klaviers (Ordner `banks/`: Schlagzeug, Flöte, Klarinette, Saxophon, Glockenspiel, Marimba, Violine, Cello, Streicher, Pizzicato, Chor „Aah“): mit FluidSynth aus der SoundFont von MIGA gerendert – GeneralUser GS v2.0 von S. Christian Collins, Lizenz `licenses/GeneralUser-GS-LICENSE.txt`.
 E-Gitarren beim Klavier (Overdrive, Verzerrt, Clean): ebenfalls aus der SoundFont von MIGA (GeneralUser GS) gerendert.
